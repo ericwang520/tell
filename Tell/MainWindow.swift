@@ -372,24 +372,29 @@ struct GbrainView: View {
             }
             ForEach(results.indices, id: \.self) { i in
                 let r = results[i]
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(r.slug)
-                            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                            .font(T.mono(12, weight: .semibold))
                             .foregroundColor(T.fgPri)
+                            .textSelection(.enabled)
                         Spacer()
                         Text(r.score)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(T.mono(10))
                             .foregroundColor(T.fgTer)
                     }
                     Text(r.snippet)
-                        .font(.system(size: 11.5))
+                        .font(T.serif(12.5))
                         .foregroundColor(T.fgSec)
-                        .lineLimit(3)
+                        .lineSpacing(2)
+                        .lineLimit(6)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                .padding(10)
+                .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 6).fill(T.bgDeep))
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
             }
         }
         .padding(16)
@@ -416,20 +421,38 @@ struct GbrainView: View {
             let d = outPipe.fileHandleForReading.readDataToEndOfFile()
             return String(data: d, encoding: .utf8) ?? ""
         }.value
-        // parse lines like: [0.3744] screen/2026-05-16 -- snippet text...
-        let pattern = #"^\[([\d\.]+)\]\s+(\S+)\s+--\s+(.+)$"#
-        let regex = try? NSRegularExpression(pattern: pattern)
+        // gbrain search emits `[score] slug -- first snippet line` followed by
+        // ANY number of continuation lines until the next `[score]` marker or
+        // EOF. Accumulate properly so snippets aren't truncated mid-word.
+        let header = #"^\[([\d\.]+)\]\s+(\S+)\s+--\s+(.*)$"#
+        let regex = try? NSRegularExpression(pattern: header)
         var parsed: [(String, String, String)] = []
-        for line in raw.split(separator: "\n") {
-            let s = String(line)
+        var current: (String, String, String)? = nil
+        func flush() {
+            if let c = current { parsed.append(c) }
+            current = nil
+        }
+        for rawLine in raw.split(separator: "\n", omittingEmptySubsequences: false) {
+            let s = String(rawLine)
             if let r = regex?.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) {
+                flush()
                 func grp(_ i: Int) -> String {
                     guard let rr = Range(r.range(at: i), in: s) else { return "" }
                     return String(s[rr])
                 }
-                parsed.append((grp(1), grp(2), grp(3)))
+                current = (grp(1), grp(2), grp(3))
+                continue
+            }
+            // continuation line — append to current snippet
+            if current != nil {
+                let trimmed = s.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty && !trimmed.hasPrefix("```") {
+                    current!.2 += " " + trimmed
+                }
             }
         }
+        flush()
+        parsed = parsed.map { ($0.0, $0.1, String($0.2.prefix(400))) }
         results = parsed
     }
 }
