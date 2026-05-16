@@ -298,12 +298,6 @@ struct SettingsView: View {
 
     private var apiTab: some View {
         VStack(spacing: 14) {
-            SectionCard(title: "OpenAI (gbrain embeddings)") {
-                VStack(alignment: .leading, spacing: 6) {
-                    FieldLabel(text: "API key")
-                    SecureField("sk-…", text: $openaiApiKey).tdInput()
-                }
-            }
             SectionCard(title: "Tell narrative") {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 6) {

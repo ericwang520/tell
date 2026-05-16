@@ -243,14 +243,14 @@ struct LogsView: View {
             } label: {
                 Image(systemName: "doc.on.doc")
             }
-            .buttonStyle(SoftButtonStyle())
+            .buttonStyle(SecondaryGhostButtonStyle())
             .help("Copy all logs")
             Button {
                 daemon.logs.removeAll()
             } label: {
                 Image(systemName: "trash")
             }
-            .buttonStyle(SoftButtonStyle(secondary: true))
+            .buttonStyle(SecondaryGhostButtonStyle())
             .help("Clear log buffer (in-memory only)")
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -309,7 +309,7 @@ struct GbrainView: View {
             Button(store.gbrainSyncing ? "Syncing…" : "Sync now") {
                 store.gbrainSyncManually()
             }
-            .buttonStyle(SoftButtonStyle(primary: true))
+            .buttonStyle(PrimaryGreenButtonStyle())
             .disabled(store.gbrainSyncing)
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
@@ -359,7 +359,7 @@ struct GbrainView: View {
                 Button(searching ? "…" : "Search") {
                     Task { await runSearch() }
                 }
-                .buttonStyle(SoftButtonStyle())
+                .buttonStyle(SecondaryGhostButtonStyle())
                 .disabled(searching || query.isEmpty)
             }
             if results.isEmpty && !query.isEmpty && !searching {

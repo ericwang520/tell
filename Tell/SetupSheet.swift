@@ -1,5 +1,5 @@
 //
-//  SetupSheet.swift — first-launch onboarding (3-item checklist, Tell voice)
+//  SetupSheet.swift — first-launch onboarding (2-item checklist, Tell voice)
 //
 
 import SwiftUI
@@ -12,46 +12,18 @@ struct SetupSheet: View {
     @AppStorage(TellSettings.kTellApiBase)  private var tellApiBase: String = "https://hnd1.aihub.zeabur.ai/v1"
     @AppStorage(TellSettings.kTellApiKey)   private var tellApiKey: String = ""
     @AppStorage(TellSettings.kTellApiModel) private var tellApiModel: String = "claude-haiku-4-5"
-    @AppStorage(TellSettings.kOpenaiApiKey) private var openaiApiKey: String = ""
 
     @State private var screenPermissionGranted: Bool = false
     @State private var testResult: String = ""
     @State private var testing: Bool = false
-    @State private var permPollTask: Task<Void, Never>?
-    @State private var isCustomModel: Bool = false
 
-    private let modelChoices = [
+    private let knownModels = [
         "claude-haiku-4-5",
         "claude-sonnet-4-6",
         "claude-opus-4-7",
         "gpt-4o-mini",
         "gpt-4o",
     ]
-
-    private var modelPicker: some View {
-        Picker("", selection: Binding<String>(
-            get: {
-                if isCustomModel { return "__custom" }
-                return modelChoices.contains(tellApiModel) ? tellApiModel : "__custom"
-            },
-            set: { newValue in
-                if newValue == "__custom" {
-                    isCustomModel = true
-                    // keep the current tellApiModel so the textfield starts with it
-                } else {
-                    isCustomModel = false
-                    tellApiModel = newValue
-                }
-            }
-        )) {
-            ForEach(modelChoices, id: \.self) { Text($0).tag($0) }
-            Divider()
-            Text("Other…").tag("__custom")
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .tint(T.fgPri)
-    }
 
     private var canFinish: Bool {
         screenPermissionGranted && !tellApiKey.isEmpty && !tellApiBase.isEmpty
@@ -65,7 +37,6 @@ struct SetupSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     section1Permission
                     section2LLM
-                    section3OpenAI
                 }
                 .padding(.horizontal, 24)
                 .padding(.vertical, 20)
@@ -73,35 +44,30 @@ struct SetupSheet: View {
             Divider().background(T.borderSoft)
             footer
         }
-        .frame(width: 540, height: 580)
+        .frame(width: 540, height: 520)
         .background(T.bg)
         .preferredColorScheme(.dark)
-        .onAppear {
-            checkScreenPermission()
-            startPolling()
-        }
-        .onDisappear { permPollTask?.cancel() }
+        .onAppear { checkScreenPermission() }
     }
 
-    // MARK: - parts
+    // MARK: - header
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
             Circle().fill(T.accent).frame(width: 7, height: 7)
                 .shadow(color: T.accent.opacity(0.55), radius: 4)
             VStack(alignment: .leading, spacing: 4) {
-                Image("TellWordmark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 26)
-                Text("Tell needs three things to watch your day.")
-                    .font(.system(size: 11.5, design: .monospaced))
+                Text("tell.").font(T.serif(20)).foregroundColor(T.fgPri)
+                Text("Tell needs two things to watch your day.")
+                    .font(T.mono(11.5))
                     .foregroundColor(T.fgTer)
             }
             Spacer()
         }
         .padding(.horizontal, 24).padding(.vertical, 16)
     }
+
+    // MARK: - section 1: permission
 
     @ViewBuilder
     private var section1Permission: some View {
@@ -119,16 +85,18 @@ struct SetupSheet: View {
                         .font(.system(size: 12)).foregroundColor(T.fgSec)
                     HStack(spacing: 8) {
                         Button("Open System Settings") { openScreenRecordingPrefs() }
-                            .buttonStyle(SoftButtonStyle())
+                            .buttonStyle(PrimaryGreenButtonStyle())
                         Button("Re-check") { checkScreenPermission() }
-                            .buttonStyle(SoftButtonStyle(secondary: true))
+                            .buttonStyle(SecondaryGhostButtonStyle())
                     }
-                    Text("After granting, Tell may need to relaunch — quit and reopen if status doesn't update.")
+                    Text("After granting, click Re-check (or relaunch Tell).")
                         .font(.system(size: 10.5)).foregroundColor(T.fgQuat)
                 }
             }
         }
     }
+
+    // MARK: - section 2: LLM
 
     @ViewBuilder
     private var section2LLM: some View {
@@ -139,38 +107,34 @@ struct SetupSheet: View {
         ) {
             VStack(alignment: .leading, spacing: 10) {
                 fieldRow(label: "Endpoint") {
-                    TextField("https://…/v1", text: $tellApiBase)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(T.fgPri)
-                        .padding(.horizontal, 8).padding(.vertical, 6)
-                        .background(T.bgDeep)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    plainInput($tellApiBase, placeholder: "https://…/v1")
                 }
                 fieldRow(label: "Key") {
-                    SecureField("sk-…", text: $tellApiKey)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(T.fgPri)
-                        .padding(.horizontal, 8).padding(.vertical, 6)
-                        .background(T.bgDeep)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                    secureInput($tellApiKey, placeholder: "sk-…")
                 }
                 fieldRow(label: "Model") {
-                    modelPicker
-                }
-                if isCustomModel {
-                    fieldRow(label: "Custom") {
-                        TextField("provider/model-name", text: $tellApiModel)
-                            .textFieldStyle(.plain)
-                            .font(T.mono(12))
-                            .foregroundColor(T.fgPri)
-                            .padding(.horizontal, 8).padding(.vertical, 6)
-                            .background(T.bgDeep)
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    HStack(spacing: 6) {
+                        Menu {
+                            ForEach(knownModels, id: \.self) { m in
+                                Button(m) { tellApiModel = m }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 9))
+                                Text("Presets")
+                                    .font(T.ui(11, weight: .medium))
+                            }
+                            .foregroundColor(T.fgSec)
+                            .padding(.horizontal, 8)
+                            .frame(height: 26)
+                            .background(T.bgElev)
+                            .overlay(RoundedRectangle(cornerRadius: 5).stroke(T.borderSoft, lineWidth: 0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: 5))
+                        }
+                        .menuStyle(.borderlessButton)
+                        .fixedSize()
+                        plainInput($tellApiModel, placeholder: "claude-haiku-4-5")
                     }
                 }
                 HStack(spacing: 10) {
@@ -190,30 +154,7 @@ struct SetupSheet: View {
         }
     }
 
-    @ViewBuilder
-    private var section3OpenAI: some View {
-        sectionCard(
-            number: "3",
-            title: "OpenAI key for gbrain embeddings",
-            optional: true,
-            done: !openaiApiKey.isEmpty
-        ) {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Without this, gbrain stores your data but can't do vector search (keyword search still works).")
-                    .font(.system(size: 12)).foregroundColor(T.fgSec)
-                fieldRow(label: "Key") {
-                    SecureField("sk-…", text: $openaiApiKey)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundColor(T.fgPri)
-                        .padding(.horizontal, 8).padding(.vertical, 6)
-                        .background(T.bgDeep)
-                        .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-            }
-        }
-    }
+    // MARK: - footer
 
     private var footer: some View {
         HStack {
@@ -233,18 +174,14 @@ struct SetupSheet: View {
             .disabled(!canFinish)
         }
         .padding(.horizontal, 24).padding(.vertical, 14)
-        .overlay(alignment: .top) {
-            Rectangle().fill(T.borderSoft).frame(height: 0.5)
-        }
     }
 
-    // MARK: - sub-bits
+    // MARK: - reusable bits
 
     @ViewBuilder
     private func sectionCard<Content: View>(
         number: String,
         title: String,
-        optional: Bool = false,
         done: Bool,
         @ViewBuilder content: () -> Content
     ) -> some View {
@@ -268,13 +205,6 @@ struct SetupSheet: View {
                 Text(title)
                     .font(T.ui(13.5, weight: .semibold))
                     .foregroundColor(T.fgPri)
-                if optional {
-                    Text("optional")
-                        .font(T.mono(9.5, weight: .medium))
-                        .foregroundColor(T.fgTer)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(T.bgElev))
-                }
                 Spacer()
             }
             content()
@@ -298,28 +228,35 @@ struct SetupSheet: View {
         }
     }
 
+    private func plainInput(_ binding: Binding<String>, placeholder: String) -> some View {
+        TextField(placeholder, text: binding)
+            .textFieldStyle(.plain)
+            .font(T.mono(12))
+            .foregroundColor(T.fgPri)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(T.bgDeep)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
+    private func secureInput(_ binding: Binding<String>, placeholder: String) -> some View {
+        SecureField(placeholder, text: binding)
+            .textFieldStyle(.plain)
+            .font(T.mono(12))
+            .foregroundColor(T.fgPri)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(T.bgDeep)
+            .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+
     // MARK: - permission + test
 
     private func checkScreenPermission() {
         screenPermissionGranted = CGPreflightScreenCaptureAccess()
     }
 
-    private func startPolling() {
-        permPollTask?.cancel()
-        permPollTask = Task { @MainActor in
-            // poll every 2s for permission flips while sheet is open
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                let now = CGPreflightScreenCaptureAccess()
-                if now != screenPermissionGranted {
-                    screenPermissionGranted = now
-                }
-            }
-        }
-    }
-
     private func openScreenRecordingPrefs() {
-        // Trigger the permission prompt (one-shot) so the app appears in the list
         _ = CGRequestScreenCaptureAccess()
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
             NSWorkspace.shared.open(url)
@@ -355,31 +292,6 @@ struct SetupSheet: View {
         } catch {
             testResult = "❌ \(error.localizedDescription.prefix(60))"
         }
-    }
-}
-
-// MARK: - shared button style (matches Tell theme)
-
-struct SoftButtonStyle: ButtonStyle {
-    var primary: Bool = false
-    var secondary: Bool = false
-    @State private var hover = false
-
-    func makeBody(configuration: Configuration) -> some View {
-        let bg: Color = primary ? T.accent.opacity(configuration.isPressed ? 0.7 : 1)
-                      : hover ? T.bgHover
-                      : T.bgElev
-        let fg: Color = primary ? .black
-                      : secondary ? T.fgSec
-                      : T.fgPri
-        return configuration.label
-            .font(.system(size: 12, weight: primary ? .semibold : .medium))
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 6).fill(bg))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
-            .foregroundColor(fg)
-            .contentShape(RoundedRectangle(cornerRadius: 6))
-            .onHover { hover = $0 }
     }
 }
 
