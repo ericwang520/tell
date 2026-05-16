@@ -29,6 +29,7 @@ enum WindowSection: String, CaseIterable, Identifiable {
 struct MainWindow: View {
     @EnvironmentObject var daemon: DaemonController
     @State private var section: WindowSection = .dashboard
+    @State private var pulse: Bool = false
 
     var body: some View {
         NavigationSplitView {
@@ -40,30 +41,63 @@ struct MainWindow: View {
         }
         .preferredColorScheme(.dark)
         .frame(minWidth: 920, minHeight: 640)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
+        }
     }
+
+    // ── Sidebar (per tell-main-window.jsx + tokens-surfaces.css) ──
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 10) {
-                Circle().fill(daemon.running ? T.accent : T.fgQuat)
-                    .frame(width: 6, height: 6)
-                Image("TellWordmark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 20)
+            // Brand: pulsing dot + serif italic 'tell' + orange period
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Circle()
+                    .fill(daemon.running ? T.accent : T.fgQuat)
+                    .frame(width: 7, height: 7)
+                    .shadow(color: T.accent.opacity(0.55), radius: 5)
+                    .opacity(pulse ? 0.6 : 1)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                ( Text("tell").font(T.serif(18)).foregroundColor(T.fgPri)
+                + Text(".").font(T.serif(19)).foregroundColor(T.period) )
                 Spacer()
             }
-            .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
-            Divider().background(T.borderSoft)
-            VStack(spacing: 2) {
+            .padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 18)
+
+            // Nav rows
+            VStack(spacing: 1) {
                 ForEach(WindowSection.allCases) { item in
                     sidebarRow(item)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.horizontal, 8)
+
             Spacer()
-            Divider().background(T.borderSoft)
-            sidebarStatus
+
+            // Footer: live dot + daemon line + last log
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 7) {
+                    Circle()
+                        .fill(daemon.running ? T.accent : T.fgQuat)
+                        .frame(width: 6, height: 6)
+                        .shadow(color: T.accent.opacity(0.5), radius: 3)
+                        .opacity(pulse ? 0.6 : 1)
+                    Text(daemon.running ? "daemon · pid \(daemon.pid)" : "daemon stopped")
+                        .font(T.mono(10))
+                        .foregroundColor(T.fgTer)
+                }
+                if !daemon.lastLog.isEmpty {
+                    Text(daemon.lastLog.prefix(80))
+                        .font(T.mono(9.5))
+                        .foregroundColor(T.fgQuat)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) {
+                Rectangle().fill(T.borderSoft).frame(height: 0.5)
+            }
         }
         .background(T.bgDeep)
     }
@@ -75,41 +109,22 @@ struct MainWindow: View {
             HStack(spacing: 10) {
                 Image(systemName: item.symbol)
                     .font(.system(size: 12))
+                    .opacity(0.85)
                     .frame(width: 16)
                 Text(item.label)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 13, weight: .medium))
                 Spacer()
             }
-            .padding(.horizontal, 12).padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
             .foregroundColor(section == item ? T.fgPri : T.fgSec)
             .background(
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: T.rBtn)
                     .fill(section == item ? T.bgElev2 : Color.clear)
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 8)
-    }
-
-    private var sidebarStatus: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Circle().fill(daemon.running ? T.accent : T.fgQuat)
-                    .frame(width: 5, height: 5)
-                Text(daemon.running ? "daemon · pid \(daemon.pid)" : "daemon stopped")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(T.fgTer)
-            }
-            if !daemon.lastLog.isEmpty {
-                Text(daemon.lastLog.prefix(60))
-                    .font(.system(size: 9.5, design: .monospaced))
-                    .foregroundColor(T.fgQuat)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.horizontal, 14).padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(SidebarRowHoverStyle())
     }
 
     @ViewBuilder
@@ -120,6 +135,20 @@ struct MainWindow: View {
         case .brain:     GbrainView().environmentObject(daemon)
         case .settings:  SettingsView()
         }
+    }
+}
+
+// MARK: - Hover styles
+
+struct SidebarRowHoverStyle: ButtonStyle {
+    @State private var hover = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: T.rBtn)
+                    .fill(hover && !configuration.isPressed ? T.bgElev : Color.clear)
+            )
+            .onHover { hover = $0 }
     }
 }
 
