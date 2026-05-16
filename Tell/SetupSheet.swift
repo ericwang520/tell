@@ -60,12 +60,14 @@ struct SetupSheet: View {
     // MARK: - parts
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 12) {
             Circle().fill(T.accent).frame(width: 7, height: 7)
                 .shadow(color: T.accent.opacity(0.55), radius: 4)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Tell").font(.system(size: 17, weight: .medium)).italic()
-                    .foregroundColor(T.fgPri)
+            VStack(alignment: .leading, spacing: 4) {
+                Image("TellWordmark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 26)
                 Text("Tell needs three things to watch your day.")
                     .font(.system(size: 11.5, design: .monospaced))
                     .foregroundColor(T.fgTer)

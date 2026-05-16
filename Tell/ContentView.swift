@@ -730,15 +730,15 @@ struct DashboardView: View {
 
     private var topbar: some View {
         HStack(alignment: .center) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
                 Circle()
                     .fill(T.accent).frame(width: 7, height: 7)
                     .shadow(color: T.accent.opacity(0.55), radius: 4)
                     .opacity(pulse ? 0.55 : 1)
-                Text("Tell")
-                    .font(.system(size: 17, weight: .medium))
-                    .italic()
-                    .foregroundColor(T.fgPri)
+                Image("TellWordmark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 22)
                 Text("watching · \(store.rangeText)")
                     .font(.system(size: 10.5, design: .monospaced))
                     .foregroundColor(T.fgTer)

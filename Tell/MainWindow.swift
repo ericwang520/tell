@@ -44,12 +44,13 @@ struct MainWindow: View {
 
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
                 Circle().fill(daemon.running ? T.accent : T.fgQuat)
                     .frame(width: 6, height: 6)
-                Text("Tell")
-                    .font(.system(size: 14, weight: .medium)).italic()
-                    .foregroundColor(T.fgPri)
+                Image("TellWordmark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 20)
                 Spacer()
             }
             .padding(.horizontal, 14).padding(.top, 14).padding(.bottom, 10)
