@@ -70,6 +70,20 @@ struct TellSettings {
 
     var subprocessEnv: [String: String] {
         var env = ProcessInfo.processInfo.environment
+        // gbrain ships as a `#!/usr/bin/env bun` script; a Finder/Xcode-launched
+        // app inherits only /usr/bin:/bin:/usr/sbin:/sbin, so `env bun` fails and
+        // every gbrain subprocess returns empty. Prepend bun + Homebrew dirs.
+        let home = NSHomeDirectory()
+        let extras = [
+            "\(home)/.bun/bin",
+            "/opt/homebrew/bin",
+            "/opt/homebrew/sbin",
+            "/usr/local/bin",
+        ]
+        let existingPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        let existingParts = existingPath.split(separator: ":").map(String.init)
+        let merged = extras.filter { !existingParts.contains($0) } + existingParts
+        env["PATH"] = merged.joined(separator: ":")
         if !openaiApiKey.isEmpty { env["OPENAI_API_KEY"] = openaiApiKey }
         if !tellApiBase.isEmpty  { env["TELL_API_BASE"]  = tellApiBase }
         if !tellApiKey.isEmpty   { env["TELL_API_KEY"]   = tellApiKey }

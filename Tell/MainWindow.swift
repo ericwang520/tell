@@ -74,9 +74,10 @@ struct MainWindow: View {
                     .frame(width: 7, height: 7)
                     .shadow(color: T.accent.opacity(0.55), radius: 5)
                     .opacity(pulse ? 0.6 : 1)
-                Text("tell.")
-                    .font(T.serif(18))
-                    .foregroundColor(T.fgPri)
+                Image("TellWordmark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 18)
                 Spacer()
             }
             .padding(.horizontal, 18).padding(.top, 36).padding(.bottom, 18)  // clear traffic lights

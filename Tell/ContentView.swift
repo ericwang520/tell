@@ -655,6 +655,128 @@ final class ActivityStore: ObservableObject {
         }
     }
 
+    // MARK: - per-session AI labels (for ExpandedCard)
+
+    /// Cached AI interpretations: `[appName: [label per session in order]]`.
+    @Published var sessionLabels: [String: [String]] = [:]
+    /// Apps currently being labeled (prevents duplicate LLM calls).
+    @Published var labelingApps: Set<String> = []
+
+    /// Batch-call the LLM to interpret what the user was doing in each session
+    /// of the given app. Cached by app name.
+    func labelSessions(for app: AppActivity) {
+        if sessionLabels[app.name] != nil || labelingApps.contains(app.name) { return }
+        let apiBase = TellSettings.shared.tellApiBase
+        let apiKey  = TellSettings.shared.tellApiKey
+        let apiModel = TellSettings.shared.tellApiModel
+        guard !apiBase.isEmpty, !apiKey.isEmpty else { return }
+
+        labelingApps.insert(app.name)
+
+        let tf = DateFormatter(); tf.dateFormat = "HH:mm"
+        let lines = app.sessions.enumerated().map { (i, s) in
+            "\(i + 1). \(tf.string(from: s.start))–\(tf.string(from: s.end)) (\(humanDuration(s.seconds))) — \(s.title.isEmpty ? "(no title)" : s.title)"
+        }.joined(separator: "\n")
+
+        let prompt = """
+        You are looking at a user's activity log for the app "\(app.name)" today. \
+        For each session below, write ONE short line (under 10 words) describing \
+        what the user was likely doing in that session. Use window titles as hints. \
+        Return exactly \(app.sessions.count) lines, prefixed with the number and ': '. \
+        No extra commentary.
+
+        Sessions:
+        \(lines)
+
+        Output (one line per session):
+        """
+
+        let n = app.sessions.count
+        let appName = app.name
+
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let labels = await Self.callLLM(
+                apiBase: apiBase, apiKey: apiKey, apiModel: apiModel,
+                prompt: prompt, count: n
+            )
+            await MainActor.run { [weak self] in
+                self?.sessionLabels[appName] = labels
+                self?.labelingApps.remove(appName)
+            }
+        }
+    }
+
+    private nonisolated static func callLLM(
+        apiBase: String, apiKey: String, apiModel: String,
+        prompt: String, count: Int
+    ) async -> [String] {
+        guard let url = URL(string: apiBase.trimmingCharacters(in: .init(charactersIn: "/")) + "/chat/completions") else {
+            return Array(repeating: "(no endpoint)", count: count)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let body: [String: Any] = [
+            "model": apiModel,
+            "messages": [["role": "user", "content": prompt]],
+            "max_tokens": min(60 * count + 60, 1200),
+            "temperature": 0.3,
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 30
+        do {
+            let (data, _) = try await URLSession.shared.data(for: req)
+            guard
+                let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let choices = obj["choices"] as? [[String: Any]],
+                let msg = choices.first?["message"] as? [String: Any],
+                let text = msg["content"] as? String
+            else {
+                return Array(repeating: "(parse error)", count: count)
+            }
+            return parseNumberedLines(text, count: count)
+        } catch {
+            return Array(repeating: "(api error)", count: count)
+        }
+    }
+
+    /// Parse "1: foo\n2: bar\n..." into an ordered list of length `count`.
+    private nonisolated static func parseNumberedLines(_ text: String, count: Int) -> [String] {
+        var out = Array(repeating: "", count: count)
+        for raw in text.split(separator: "\n", omittingEmptySubsequences: true) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            // match "N: text" or "N. text" or "N) text"
+            guard let m = line.range(
+                of: #"^\s*(\d+)\s*[:.)\-]\s*(.+)$"#,
+                options: .regularExpression
+            ) else { continue }
+            let captured = String(line[m])
+            let parts = captured.split(separator: ":", maxSplits: 1).map { String($0) }
+                + captured.split(separator: ".", maxSplits: 1).map { String($0) }
+                + captured.split(separator: ")", maxSplits: 1).map { String($0) }
+            // Simpler: use NSRegularExpression to grab groups
+            if let re = try? NSRegularExpression(pattern: #"^\s*(\d+)\s*[:.)\-]\s*(.+)$"#),
+               let m2 = re.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)),
+               m2.numberOfRanges >= 3,
+               let idxRange = Range(m2.range(at: 1), in: line),
+               let textRange = Range(m2.range(at: 2), in: line),
+               let idx = Int(line[idxRange])
+            {
+                let i = idx - 1
+                if i >= 0 && i < count {
+                    out[i] = String(line[textRange]).trimmingCharacters(in: .whitespaces)
+                }
+            }
+            _ = parts  // suppress unused-warning fallback
+        }
+        // Fill any blanks with a placeholder so UI knows it tried
+        for i in out.indices where out[i].isEmpty {
+            out[i] = "(no detail)"
+        }
+        return out
+    }
+
     nonisolated private static func extractInt(after marker: String, in text: String) -> Int {
         guard let range = text.range(of: marker) else { return 0 }
         let tail = text[range.upperBound...]
@@ -778,9 +900,10 @@ struct DashboardView: View {
                     .frame(width: 7, height: 7)
                     .shadow(color: T.accent.opacity(0.55), radius: 4)
                     .opacity(pulse ? 0.55 : 1)
-                Text("tell.")
-                    .font(T.serif(17))
-                    .foregroundColor(T.fgPri)
+                Image("TellWordmark")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 17)
                 Text("watching · \(store.rangeText)")
                     .font(T.mono(10.5))
                     .foregroundColor(T.fgTer)
@@ -1246,26 +1369,13 @@ struct ExpandedCard: View {
                 .foregroundColor(T.fgSec)
                 .lineSpacing(2)
 
-            // Session timeline (td-card-detail)
+            // Session timeline — each row shows the AI's read of what the user
+            // was doing in that session (falls back to window title before the
+            // batched LLM call comes back).
             VStack(spacing: 0) {
                 ForEach(Array(activity.sessions.enumerated()), id: \.offset) { idx, s in
                     if idx > 0 { Rectangle().fill(T.borderSoft).frame(height: 0.5) }
-                    HStack(spacing: 14) {
-                        Text("\(time(s.start)) – \(time(s.end))")
-                            .font(T.mono(11))
-                            .monospacedDigit()
-                            .foregroundColor(T.fgTer)
-                            .frame(width: 96, alignment: .leading)
-                        Text(s.title.isEmpty ? "(no title)" : s.title)
-                            .font(T.ui(12.5))
-                            .foregroundColor(T.fgPri).lineLimit(1)
-                        Spacer()
-                        Text(durString(s.seconds))
-                            .font(T.mono(11))
-                            .monospacedDigit()
-                            .foregroundColor(T.fgTer)
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 9)
+                    sessionRow(idx: idx, session: s)
                 }
             }
             .background(T.bgDeep)
@@ -1276,6 +1386,52 @@ struct ExpandedCard: View {
         .background(T.bgElev2)
         .overlay(RoundedRectangle(cornerRadius: T.rCard).stroke(T.borderStrong, lineWidth: 0.5))
         .clipShape(RoundedRectangle(cornerRadius: T.rCard))
+        .onAppear {
+            store.labelSessions(for: activity)
+        }
+    }
+
+    @ViewBuilder
+    private func sessionRow(idx: Int, session s: Session) -> some View {
+        let labels = store.sessionLabels[activity.name] ?? []
+        let aiLabel = idx < labels.count ? labels[idx] : ""
+        let loading = store.labelingApps.contains(activity.name)
+        let primary: String = {
+            if !aiLabel.isEmpty && aiLabel != "(no detail)" { return aiLabel }
+            if loading { return "AI reading…" }
+            return s.title.isEmpty ? "(no title)" : s.title
+        }()
+        let primaryColor: Color = {
+            if !aiLabel.isEmpty && aiLabel != "(no detail)" { return T.fgPri }
+            if loading { return T.fgTer }
+            return T.fgSec  // fallback to dim when only title
+        }()
+
+        HStack(spacing: 14) {
+            Text("\(time(s.start)) – \(time(s.end))")
+                .font(T.mono(11))
+                .monospacedDigit()
+                .foregroundColor(T.fgTer)
+                .frame(width: 96, alignment: .leading)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(primary)
+                    .font(T.ui(12.5))
+                    .foregroundColor(primaryColor)
+                    .lineLimit(1)
+                if !aiLabel.isEmpty, !s.title.isEmpty, aiLabel != s.title {
+                    Text(s.title)
+                        .font(T.mono(9.5))
+                        .foregroundColor(T.fgQuat)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            Text(durString(s.seconds))
+                .font(T.mono(11))
+                .monospacedDigit()
+                .foregroundColor(T.fgTer)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 9)
     }
 
     private func time(_ d: Date) -> String {

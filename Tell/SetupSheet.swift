@@ -57,7 +57,7 @@ struct SetupSheet: View {
             Circle().fill(T.accent).frame(width: 7, height: 7)
                 .shadow(color: T.accent.opacity(0.55), radius: 4)
             VStack(alignment: .leading, spacing: 4) {
-                Text("tell.").font(T.serif(20)).foregroundColor(T.fgPri)
+                Image("TellWordmark").resizable().scaledToFit().frame(height: 20)
                 Text("Tell needs two things to watch your day.")
                     .font(T.mono(11.5))
                     .foregroundColor(T.fgTer)
