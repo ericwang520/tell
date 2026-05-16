@@ -63,6 +63,7 @@ struct TellApp: App {
         }
         .defaultSize(width: 1000, height: 720)
         .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)  // hide macOS title bar, keep traffic lights
         .commands {
             CommandGroup(replacing: .newItem) {}  // hide File > New (we're not document-based)
         }

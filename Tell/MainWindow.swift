@@ -30,6 +30,15 @@ struct MainWindow: View {
     @EnvironmentObject var daemon: DaemonController
     @State private var section: WindowSection = .dashboard
     @State private var pulse: Bool = false
+    @State private var showSetup: Bool = false
+
+    private var needsSetup: Bool {
+        TellSettings.shared.tellApiKey.isEmpty
+            || !CGPreflightScreenCaptureAccess()
+    }
+    private var alreadyDismissedSetup: Bool {
+        UserDefaults.standard.bool(forKey: "didDismissFirstSetup")
+    }
 
     var body: some View {
         NavigationSplitView {
@@ -43,6 +52,12 @@ struct MainWindow: View {
         .frame(minWidth: 920, minHeight: 640)
         .onAppear {
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
+            if needsSetup && !alreadyDismissedSetup {
+                showSetup = true
+            }
+        }
+        .sheet(isPresented: $showSetup) {
+            SetupSheet(isPresented: $showSetup)
         }
     }
 
@@ -62,7 +77,7 @@ struct MainWindow: View {
                 + Text(".").font(T.serif(19)).foregroundColor(T.period) )
                 Spacer()
             }
-            .padding(.horizontal, 18).padding(.top, 18).padding(.bottom, 18)
+            .padding(.horizontal, 18).padding(.top, 36).padding(.bottom, 18)  // clear traffic lights
 
             // Nav rows
             VStack(spacing: 1) {
