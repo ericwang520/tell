@@ -229,17 +229,31 @@ final class DaemonController: ObservableObject {
             running = true
             lastLog = "▶ started pid=\(pid)"
 
-            logTask = Task.detached(priority: .background) { [weak self] in
-                let handle = pipe.fileHandleForReading
-                while let line = try? handle.readLine(strippingNewline: true), !Task.isCancelled {
-                    await MainActor.run { [weak self] in
+            // Stream daemon stderr without blocking the main thread.
+            // readabilityHandler fires on a system background queue when data
+            // is available; we hop to MainActor only to mutate @Published.
+            var buffer = Data()
+            pipe.fileHandleForReading.readabilityHandler = { [weak self] fh in
+                let data = fh.availableData
+                if data.isEmpty {
+                    // EOF — daemon exited
+                    fh.readabilityHandler = nil
+                    Task { @MainActor [weak self] in
+                        self?.running = false
+                        self?.pid = 0
+                        self?.appendLog("◼ daemon exited")
+                    }
+                    return
+                }
+                buffer.append(data)
+                // emit complete \n-terminated lines, keep partial in buffer
+                while let nl = buffer.firstIndex(of: 0x0A) {
+                    let lineData = buffer.prefix(upTo: nl)
+                    buffer.removeSubrange(buffer.startIndex...nl)
+                    guard let line = String(data: lineData, encoding: .utf8) else { continue }
+                    Task { @MainActor [weak self] in
                         self?.appendLog(line)
                     }
-                }
-                await MainActor.run { [weak self] in
-                    self?.running = false
-                    self?.pid = 0
-                    self?.appendLog("◼ daemon exited")
                 }
             }
         } catch {
