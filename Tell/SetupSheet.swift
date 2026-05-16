@@ -145,10 +145,10 @@ struct SetupSheet: View {
                     Button(testing ? "Testing…" : "Test endpoint") {
                         Task { await testEndpoint() }
                     }
-                    .buttonStyle(SoftButtonStyle())
+                    .buttonStyle(SecondaryGhostButtonStyle())
                     .disabled(testing || tellApiKey.isEmpty || tellApiBase.isEmpty)
                     Text(testResult)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(T.mono(11))
                         .foregroundColor(testResult.hasPrefix("✅") ? T.accent
                                          : testResult.hasPrefix("❌") ? T.warn
                                          : T.fgTer)
@@ -189,7 +189,7 @@ struct SetupSheet: View {
                 UserDefaults.standard.set(true, forKey: "didDismissFirstSetup")
                 isPresented = false
             }
-            .buttonStyle(SoftButtonStyle(secondary: true))
+            .buttonStyle(SecondaryGhostButtonStyle())
 
             Spacer()
 
@@ -197,10 +197,13 @@ struct SetupSheet: View {
                 UserDefaults.standard.set(true, forKey: "didDismissFirstSetup")
                 isPresented = false
             }
-            .buttonStyle(SoftButtonStyle(primary: true))
+            .buttonStyle(PrimaryGreenButtonStyle())
             .disabled(!canFinish)
         }
         .padding(.horizontal, 24).padding(.vertical, 14)
+        .overlay(alignment: .top) {
+            Rectangle().fill(T.borderSoft).frame(height: 0.5)
+        }
     }
 
     // MARK: - sub-bits
@@ -231,11 +234,11 @@ struct SetupSheet: View {
                     }
                 }
                 Text(title)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(T.ui(13.5, weight: .semibold))
                     .foregroundColor(T.fgPri)
                 if optional {
                     Text("optional")
-                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                        .font(T.mono(9.5, weight: .medium))
                         .foregroundColor(T.fgTer)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 4).fill(T.bgElev))
@@ -246,18 +249,19 @@ struct SetupSheet: View {
                 .padding(.leading, 32)
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 10).fill(T.bgElev))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.borderSoft, lineWidth: 0.5))
+        .background(RoundedRectangle(cornerRadius: T.rCard).fill(T.bgElev))
+        .overlay(RoundedRectangle(cornerRadius: T.rCard).stroke(T.borderSoft, lineWidth: 0.5))
     }
 
     @ViewBuilder
     private func fieldRow<Content: View>(label: String,
                                           @ViewBuilder content: () -> Content) -> some View {
         HStack(alignment: .center, spacing: 10) {
-            Text(label)
-                .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+            Text(label.uppercased())
+                .font(T.ui(10, weight: .semibold))
+                .tracking(1.4)
                 .foregroundColor(T.fgTer)
-                .frame(width: 64, alignment: .trailing)
+                .frame(width: 70, alignment: .trailing)
             content()
         }
     }
