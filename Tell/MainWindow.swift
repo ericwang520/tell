@@ -129,12 +129,16 @@ struct MainWindow: View {
 
     @ViewBuilder
     private var detail: some View {
-        switch section {
-        case .dashboard: DashboardView().environmentObject(daemon)
-        case .logs:      LogsView().environmentObject(daemon)
-        case .brain:     GbrainView().environmentObject(daemon)
-        case .settings:  SettingsView()
+        Group {
+            switch section {
+            case .dashboard: DashboardView().environmentObject(daemon)
+            case .logs:      LogsView().environmentObject(daemon)
+            case .brain:     GbrainView().environmentObject(daemon)
+            case .settings:  SettingsView()
+            }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(T.bg)
     }
 }
 

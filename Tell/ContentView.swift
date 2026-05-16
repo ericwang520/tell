@@ -688,7 +688,7 @@ struct DashboardView: View {
             sectionHead
             ScrollView { content.padding(.bottom, 20) }
         }
-        .frame(width: 720, height: 760)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(T.bg)
         .preferredColorScheme(.dark)
         .onAppear {
