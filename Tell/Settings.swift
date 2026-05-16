@@ -277,7 +277,7 @@ struct SettingsView: View {
                 SubTabs(selection: $tab)
                 Spacer()
             }
-            .padding(.horizontal, 18).padding(.top, 14).padding(.bottom, 14)
+            .padding(.horizontal, 18).padding(.top, 12).padding(.bottom, 12)
             ScrollView {
                 VStack(spacing: 14) {
                     switch tab {

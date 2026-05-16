@@ -679,37 +679,17 @@ struct DashboardView: View {
     @Namespace private var rangeNs
 
     var body: some View {
-        // Stage background (warm dark gradient) — design's .td-stage
-        ZStack(alignment: .center) {
-            LinearGradient(
-                stops: [
-                    .init(color: Color(hex: 0x3a3128), location: 0),
-                    .init(color: Color(hex: 0x1d1a16), location: 0.55),
-                    .init(color: Color(hex: 0x0e0c0a), location: 1)
-                ],
-                startPoint: .top, endPoint: .bottom
-            )
-            .ignoresSafeArea()
-
-            // The 720pt panel (design's .td-panel)
-            VStack(spacing: 0) {
-                topbar
-                Rectangle().fill(T.borderSoft).frame(height: 0.5)
-                rangeRow
-                heroCard
-                gbrainRow
-                sectionHead
-                ScrollView { content.padding(.bottom, 20) }
-                    .frame(maxHeight: 360)
-            }
-            .frame(width: 720)
-            .background(T.bg)
-            .overlay(RoundedRectangle(cornerRadius: T.rPanel).stroke(T.borderStrong, lineWidth: 0.5))
-            .clipShape(RoundedRectangle(cornerRadius: T.rPanel))
-            .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
-            .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
-            .padding(28)
+        VStack(alignment: .leading, spacing: 0) {
+            topbar
+            Rectangle().fill(T.borderSoft).frame(height: 0.5)
+            rangeRow
+            heroCard
+            gbrainRow
+            sectionHead
+            ScrollView { content.padding(.bottom, 20) }
+            Spacer(minLength: 0)
         }
+        .background(T.bg)
         .preferredColorScheme(.dark)
         .onAppear {
             store.reload(range: range)
