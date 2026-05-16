@@ -904,25 +904,51 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var heroBody: some View {
-        // Prefer LLM overall from tell-rich. Wrap inline ⟨...⟩ tokens in warn color.
+        // Prefer LLM overall from tell-rich. Mono "num" chips for ⟨...⟩ ranges.
         if !store.overall.isEmpty {
-            highlighted(store.overall)
-                .font(.system(size: 18))
-                .italic()
+            heroChips(store.overall)
+                .font(T.serif(19))
                 .foregroundColor(T.fgPri)
-                .lineSpacing(3)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             Text(fallbackHeroText())
-                .font(.system(size: 18))
-                .italic()
+                .font(T.serif(19))
                 .foregroundColor(T.fgPri)
-                .lineSpacing(3)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    /// Render text with ⟨...⟩ runs highlighted in warn color (as in the mockup).
+    /// Render serif italic with ⟨…⟩ → mono semibold warn-color chips (matches design).
+    private func heroChips(_ s: String) -> Text {
+        var out = Text("")
+        var buf = ""
+        var inMark = false
+        func flushPlain() {
+            if !buf.isEmpty {
+                out = out + Text(buf).foregroundColor(T.fgPri)
+                buf.removeAll()
+            }
+        }
+        func flushChip() {
+            if !buf.isEmpty {
+                out = out + Text(buf)
+                    .foregroundColor(T.warn)
+                    .font(T.mono(16, weight: .semibold))
+                buf.removeAll()
+            }
+        }
+        for ch in s {
+            if ch == "⟨" { flushPlain(); inMark = true; continue }
+            if ch == "⟩" { flushChip(); inMark = false; continue }
+            buf.append(ch)
+        }
+        if inMark { flushChip() } else { flushPlain() }
+        return out
+    }
+
+    /// Legacy single-color highlighter kept for backward compatibility.
     private func highlighted(_ s: String) -> Text {
         var out = Text("")
         var buf = ""
@@ -1065,38 +1091,41 @@ struct AppCard: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 appIcon(name: activity.name, size: 30)
+                    .clipShape(RoundedRectangle(cornerRadius: 7))
                 Spacer()
                 Text(durString(activity.totalSeconds))
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .font(T.mono(13, weight: .semibold))
+                    .monospacedDigit()
                     .foregroundColor(activity.drift ? T.warn : T.fgPri)
             }
             Text(activity.name)
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(T.ui(12.5, weight: .semibold))
                 .foregroundColor(T.fgPri).lineLimit(1)
-            Text(activity.summary)
-                .font(.system(size: 12.5))
-                .italic()
+            Text(activity.summary.isEmpty ? "—" : activity.summary)
+                .font(T.serif(12.5))
                 .foregroundColor(T.fgSec)
                 .lineSpacing(2).lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
             spark
         }
         .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 11)
         .frame(minHeight: 124, alignment: .topLeading)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 10).fill(hover ? T.bgHover : T.bgElev)
+                RoundedRectangle(cornerRadius: T.rCard).fill(hover ? T.bgHover : T.bgElev)
                 if activity.drift {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: T.rCard)
                         .fill(LinearGradient(colors: [T.warn.opacity(0.05), .clear],
                                              startPoint: .top, endPoint: .center))
                 }
             }
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(activity.drift ? T.warn.opacity(0.22) : T.borderSoft, lineWidth: 0.5)
+            RoundedRectangle(cornerRadius: T.rCard)
+                .stroke(activity.drift ? T.warn.opacity(0.22) : (hover ? T.border : T.borderSoft),
+                        lineWidth: 0.5)
         )
         .overlay(alignment: .topTrailing) {
             if activity.drift {
@@ -1152,12 +1181,13 @@ struct ExpandedCard: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 10) {
                 appIcon(name: activity.name, size: 36)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(activity.name)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(T.ui(15, weight: .semibold))
                         .foregroundColor(T.fgPri)
                     Text("\(activity.sessions.count) sessions")
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(T.mono(10))
                         .foregroundColor(T.fgTer)
                 }
                 Spacer()
@@ -1168,14 +1198,15 @@ struct ExpandedCard: View {
                         Image(systemName: "arrow.up.right.square")
                         Text("Open")
                     }
-                    .font(.system(size: 11))
+                    .font(T.ui(11))
                     .foregroundColor(T.fgSec)
                     .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(RoundedRectangle(cornerRadius: 6).fill(T.bgElev))
                 }
                 .buttonStyle(.plain)
                 Text(durString(activity.totalSeconds))
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .font(T.mono(13, weight: .semibold))
+                    .monospacedDigit()
                     .foregroundColor(activity.drift ? T.warn : T.fgPri)
                 Button(action: onClose) {
                     Image(systemName: "xmark")
@@ -1187,24 +1218,27 @@ struct ExpandedCard: View {
                 .buttonStyle(.plain)
             }
             Text(activity.summary)
-                .font(.system(size: 12.5))
-                .italic()
+                .font(T.serif(12.5))
                 .foregroundColor(T.fgSec)
+                .lineSpacing(2)
 
+            // Session timeline (td-card-detail)
             VStack(spacing: 0) {
                 ForEach(Array(activity.sessions.enumerated()), id: \.offset) { idx, s in
                     if idx > 0 { Rectangle().fill(T.borderSoft).frame(height: 0.5) }
                     HStack(spacing: 14) {
                         Text("\(time(s.start)) – \(time(s.end))")
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(T.mono(11))
+                            .monospacedDigit()
                             .foregroundColor(T.fgTer)
                             .frame(width: 96, alignment: .leading)
                         Text(s.title.isEmpty ? "(no title)" : s.title)
-                            .font(.system(size: 12.5))
+                            .font(T.ui(12.5))
                             .foregroundColor(T.fgPri).lineLimit(1)
                         Spacer()
                         Text(durString(s.seconds))
-                            .font(.system(size: 11, design: .monospaced))
+                            .font(T.mono(11))
+                            .monospacedDigit()
                             .foregroundColor(T.fgTer)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 9)
@@ -1216,8 +1250,8 @@ struct ExpandedCard: View {
         }
         .padding(14)
         .background(T.bgElev2)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.borderStrong, lineWidth: 0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: T.rCard).stroke(T.borderStrong, lineWidth: 0.5))
+        .clipShape(RoundedRectangle(cornerRadius: T.rCard))
     }
 
     private func time(_ d: Date) -> String {
