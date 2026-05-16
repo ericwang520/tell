@@ -214,6 +214,7 @@ final class DaemonController: ObservableObject {
             "--rescan", "15",  // re-OCR same window every 15s — catches scroll/edits
             "--idle", String(settings.daemonIdleSeconds),
             "--gbrain-sync-every", String(settings.gbrainSyncEvery),
+            "--debug-save-ocr",  // temp: archive every screencap to ~/Downloads/ocr/
         ]
         p.currentDirectoryURL = projectRoot
         p.environment = settings.subprocessEnv
