@@ -10,6 +10,7 @@ import Combine
 // MARK: - Theme (mirrors tokens-d.css)
 
 enum T {
+    // Backgrounds
     static let bg          = Color(hex: 0x1F1C19)
     static let bgElev      = Color(hex: 0x2A2620)
     static let bgElev2     = Color(hex: 0x322D26)
@@ -17,17 +18,44 @@ enum T {
     static let bgHero      = Color(hex: 0x2D2620)
     static let bgDeep      = Color(hex: 0x181613)
 
+    // Borders
     static let border      = Color(hex: 0x3B3429)
     static let borderSoft  = Color(hex: 0x2E281F)
     static let borderStrong = Color(hex: 0x4A4234)
 
+    // Foregrounds
     static let fgPri       = Color(hex: 0xFAF3E6)
     static let fgSec       = Color(hex: 0xC7B59C)
     static let fgTer       = Color(hex: 0x8A7866)
     static let fgQuat      = Color(hex: 0x5D4F3E)
 
+    // Accents
     static let accent      = Color(hex: 0x4ADE80)
+    static let accentDim   = Color(hex: 0x16A34A)
+    static let accentInk   = Color(hex: 0x052E1F)  // text on accent buttons
     static let warn        = Color(hex: 0xFBBF24)
+    static let warnDim     = Color(hex: 0xB45309)
+    static let warnChipBg  = Color(hex: 0xFBBF24).opacity(0.12)
+    static let danger      = Color(hex: 0xF87171)
+    static let period      = Color(hex: 0xE89A52)  // orange period in wordmark
+
+    // Radii (design tokens)
+    static let rPanel:  CGFloat = 14
+    static let rCard:   CGFloat = 10
+    static let rBtn:    CGFloat = 7
+    static let rChip:   CGFloat = 18
+
+    // Font helpers
+    static func serif(_ size: CGFloat, italic: Bool = true) -> Font {
+        let f = Font.system(size: size, weight: .medium, design: .serif)
+        return italic ? f.italic() : f
+    }
+    static func mono(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .monospaced)
+    }
+    static func ui(_ size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight)
+    }
 }
 
 extension Color {
