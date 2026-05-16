@@ -211,7 +211,7 @@ final class DaemonController: ObservableObject {
             daemonScript.path,
             "--interval", String(settings.daemonPollSeconds),
             "--ocr",
-            "--rescan", "30",
+            "--rescan", "15",  // re-OCR same window every 15s — catches scroll/edits
             "--idle", String(settings.daemonIdleSeconds),
             "--gbrain-sync-every", String(settings.gbrainSyncEvery),
         ]
@@ -404,7 +404,11 @@ final class ActivityStore: ObservableObject {
         for (app, ss) in grouped {
             let total = ss.reduce(0) { $0 + $1.seconds }
             if total < 5 { continue }
-            let sorted = ss.sorted { $0.start > $1.start }
+            // Merge adjacent same-title segments — the daemon produces lots
+            // of fragments while a user lingers on one page; the user wants
+            // them collapsed into one row in the expanded card.
+            let collapsed = collapseAdjacentSessions(ss, sameTitleGapSec: 120)
+            let sorted = collapsed.sorted { $0.start > $1.start }
             let last = sorted.first!.end
             let spark = buildSpark(sessions: ss, start: windowStart, end: windowEnd)
             let drift = driftApps.contains(app)
@@ -474,6 +478,32 @@ final class ActivityStore: ObservableObject {
             }
             i += 1
         }
+        return out
+    }
+
+    /// Merge adjacent sessions of the SAME app that have the same title
+    /// (or whose end-to-next-start gap is ≤ `sameTitleGapSec`). Daemon emits
+    /// 5-second fragments while a user lingers on one page; the collapsed
+    /// form is what the user actually thinks of as a "session".
+    private func collapseAdjacentSessions(_ sessions: [Session],
+                                          sameTitleGapSec: Int) -> [Session] {
+        let sorted = sessions.sorted { $0.start < $1.start }
+        guard !sorted.isEmpty else { return [] }
+        var out: [Session] = []
+        var cur = sorted[0]
+        for next in sorted.dropFirst() {
+            let gap = Int(next.start.timeIntervalSince(cur.end))
+            let sameTitle = cur.title == next.title
+            // Merge when same title and the gap is reasonable.
+            if sameTitle && gap <= sameTitleGapSec {
+                cur = Session(app: cur.app, title: cur.title,
+                              start: cur.start, end: next.end)
+            } else {
+                out.append(cur)
+                cur = next
+            }
+        }
+        out.append(cur)
         return out
     }
 
