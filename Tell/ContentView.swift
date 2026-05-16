@@ -687,8 +687,9 @@ struct DashboardView: View {
             gbrainRow
             sectionHead
             ScrollView { content.padding(.bottom, 20) }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(T.bg)
         .preferredColorScheme(.dark)
         .onAppear {
@@ -758,17 +759,17 @@ struct DashboardView: View {
 
     private var topbar: some View {
         HStack(alignment: .center) {
-            HStack(alignment: .center, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Circle()
-                    .fill(T.accent).frame(width: 7, height: 7)
+                    .fill(daemon.running ? T.accent : T.fgQuat)
+                    .frame(width: 7, height: 7)
                     .shadow(color: T.accent.opacity(0.55), radius: 4)
                     .opacity(pulse ? 0.55 : 1)
-                Image("TellWordmark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(height: 22)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                ( Text("tell").font(T.serif(17)).foregroundColor(T.fgPri)
+                + Text(".").font(T.serif(19)).foregroundColor(T.period) )
                 Text("watching · \(store.rangeText)")
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(T.mono(10.5))
                     .foregroundColor(T.fgTer)
             }
             Spacer()
@@ -875,30 +876,40 @@ struct DashboardView: View {
     // MARK: hero
 
     private var heroCard: some View {
-        HStack(alignment: .top, spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("TELL · \(range.label.uppercased())")
+                .font(.system(size: 10, weight: .semibold)).tracking(1.6)
+                .foregroundColor(T.warn)
+            heroBody
+            HStack {
+                Text(heroFooter())
+                    .font(T.mono(10))
+                    .foregroundColor(T.fgQuat)
+                Spacer()
+                Text("\(store.totalActive) active · \(store.apps.count) apps")
+                    .font(T.mono(10))
+                    .foregroundColor(T.fgQuat)
+            }
+            .padding(.top, 4)
+        }
+        .padding(.horizontal, 20).padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(
+            ZStack {
+                T.bgHero
+                LinearGradient(
+                    colors: [T.warn.opacity(0.05), .clear],
+                    startPoint: .topLeading, endPoint: .center
+                )
+            }
+        )
+        .overlay(alignment: .leading) {
             Rectangle().fill(T.warn).frame(width: 2)
                 .shadow(color: T.warn.opacity(0.3), radius: 4)
-            VStack(alignment: .leading, spacing: 8) {
-                Text("TELL · \(range.label.uppercased())")
-                    .font(.system(size: 10, weight: .semibold)).tracking(1.6)
-                    .foregroundColor(T.warn)
-                heroBody
-                HStack {
-                    Text(heroFooter())
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(T.fgQuat)
-                    Spacer()
-                    Text("\(store.totalActive) active · \(store.apps.count) apps")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundColor(T.fgQuat)
-                }
-                .padding(.top, 4)
-            }
-            .padding(.horizontal, 20).padding(.vertical, 16)
         }
-        .background(T.bgHero)
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(T.border, lineWidth: 0.5))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: T.rCard).stroke(T.border, lineWidth: 0.5))
+        .clipShape(RoundedRectangle(cornerRadius: T.rCard))
         .padding(.horizontal, 20).padding(.bottom, 16)
     }
 
