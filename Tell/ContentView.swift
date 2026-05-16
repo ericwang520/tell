@@ -1066,8 +1066,18 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var heroBody: some View {
-        // Prefer LLM overall from tell-rich. Mono "num" chips for ⟨...⟩ ranges.
-        if !store.overall.isEmpty {
+        // Three rendering modes, in priority:
+        //   1. refreshing → shimmering mock text ("AI is thinking")
+        //   2. have a real observation → render with mono ⟨...⟩ chips
+        //   3. nothing → fallback message
+        if store.refreshing {
+            TellHeroPlaceholder([
+                "You spent the last stretch jumping between three projects",
+                "without finishing any of them. The OAuth callback fix is still",
+                "untouched — even though you opened the file twice today."
+            ])
+            .shimmering(bandSize: 0.4)
+        } else if !store.overall.isEmpty {
             heroChips(store.overall)
                 .font(T.serif(19))
                 .foregroundColor(T.fgPri)

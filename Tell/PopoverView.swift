@@ -175,8 +175,11 @@ struct PopoverView: View {
             Text("TELL · \(range.label.uppercased())")
                 .font(.system(size: 10, weight: .semibold)).tracking(1.6)
                 .foregroundColor(T.warn)
-            if store.refreshing && store.overall.isEmpty {
-                skeleton
+            if store.refreshing {
+                // Shimmering placeholder text — reads as "AI is thinking"
+                // (mock content shaped like a real Tell observation).
+                TellHeroPlaceholder()
+                    .shimmering(bandSize: 0.4)
             } else if !store.overall.isEmpty {
                 heroChips(store.overall)
                     .font(T.serif(14.5))
