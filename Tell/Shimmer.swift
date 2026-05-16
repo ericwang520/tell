@@ -98,29 +98,42 @@ public extension View {
 
 // MARK: - Tell-specific mock placeholder text
 
-/// A 3-line placeholder that mimics a typical Tell hero observation,
-/// rendered dim so .shimmering() reads as "AI is thinking".
+/// A 3-line placeholder that mimics a typical Tell hero observation.
+/// Uses a bright overlay shimmer so the loading state is visible against
+/// the dark warm background (mask mode + dim text was invisible).
 struct TellHeroPlaceholder: View {
     let lines: [String]
+    let fontSize: CGFloat
 
     init(_ lines: [String] = [
         "You spent the last stretch jumping between three projects without",
         "finishing any of them. The OAuth callback fix is still untouched",
         "even though you opened the file twice — want to talk about it?"
-    ]) {
+    ], fontSize: CGFloat = 14.5) {
         self.lines = lines
+        self.fontSize = fontSize
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                 Text(line)
-                    .font(T.serif(14.5))
-                    .foregroundColor(T.fgQuat)  // dim — will be masked by shimmer
+                    .font(T.serif(fontSize))
+                    .foregroundColor(T.fgSec.opacity(0.55))
                     .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        // Bright streak passing over the placeholder text.
+        .shimmering(
+            gradient: Gradient(colors: [
+                Color.white.opacity(0.0),
+                Color.white.opacity(0.35),
+                Color.white.opacity(0.0),
+            ]),
+            bandSize: 0.5,
+            mode: .overlay(blendMode: .plusLighter)
+        )
     }
 }

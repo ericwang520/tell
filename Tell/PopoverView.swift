@@ -21,14 +21,19 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            rangeRow
-            gbrainStrip
-            heroCard
-            sectionHead
-            topAppRows
-            Spacer(minLength: 0)
-            footer
+            header  // pinned top
+            ScrollView {
+                VStack(spacing: 0) {
+                    rangeRow
+                    gbrainStrip
+                    heroCard
+                    sectionHead
+                    topAppRows
+                    Spacer(minLength: 0)
+                }
+            }
+            .scrollIndicators(.hidden)
+            footer  // pinned bottom
         }
         .frame(width: 380, height: 540)
         .background(T.bg)
@@ -36,6 +41,9 @@ struct PopoverView: View {
         .onAppear {
             store.reload(range: range)
             store.refreshGbrainStats()
+            // Trigger an LLM fetch so the placeholder shimmer is visible
+            // (and the user sees a fresh observation on first open).
+            store.refreshFromCLI(range: range)
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
         }
         .onChange(of: range) {
