@@ -833,7 +833,10 @@ struct DashboardView: View {
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
         }
         .onChange(of: range) {
+            // Re-run tell-rich for the new window so hero + per-app summaries
+            // reflect the selected range (not the previous one).
             store.reload(range: range)
+            store.refreshFromCLI(range: range)
             openApp = nil
         }
     }

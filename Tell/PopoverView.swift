@@ -35,7 +35,11 @@ struct PopoverView: View {
             store.refreshGbrainStats()
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
         }
-        .onChange(of: range) { store.reload(range: range) }
+        .onChange(of: range) {
+            // Re-fetch the LLM narrative for the new window (tell-rich call).
+            store.reload(range: range)
+            store.refreshFromCLI(range: range)
+        }
         .onReceive(tick) { _ in
             store.reload(range: range)
             store.refreshGbrainStats()
