@@ -680,7 +680,7 @@ struct DashboardView: View {
 
     var body: some View {
         // Stage background (warm dark gradient) — design's .td-stage
-        ZStack(alignment: .top) {
+        ZStack(alignment: .center) {
             LinearGradient(
                 stops: [
                     .init(color: Color(hex: 0x3a3128), location: 0),
@@ -708,8 +708,7 @@ struct DashboardView: View {
             .clipShape(RoundedRectangle(cornerRadius: T.rPanel))
             .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
             .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
-            .padding(.top, 36)
-            .padding(.bottom, 36)
+            .padding(28)
         }
         .preferredColorScheme(.dark)
         .onAppear {

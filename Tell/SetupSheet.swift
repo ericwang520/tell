@@ -18,6 +18,7 @@ struct SetupSheet: View {
     @State private var testResult: String = ""
     @State private var testing: Bool = false
     @State private var permPollTask: Task<Void, Never>?
+    @State private var isCustomModel: Bool = false
 
     private let modelChoices = [
         "claude-haiku-4-5",
@@ -26,6 +27,31 @@ struct SetupSheet: View {
         "gpt-4o-mini",
         "gpt-4o",
     ]
+
+    private var modelPicker: some View {
+        Picker("", selection: Binding<String>(
+            get: {
+                if isCustomModel { return "__custom" }
+                return modelChoices.contains(tellApiModel) ? tellApiModel : "__custom"
+            },
+            set: { newValue in
+                if newValue == "__custom" {
+                    isCustomModel = true
+                    // keep the current tellApiModel so the textfield starts with it
+                } else {
+                    isCustomModel = false
+                    tellApiModel = newValue
+                }
+            }
+        )) {
+            ForEach(modelChoices, id: \.self) { Text($0).tag($0) }
+            Divider()
+            Text("Other…").tag("__custom")
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .tint(T.fgPri)
+    }
 
     private var canFinish: Bool {
         screenPermissionGranted && !tellApiKey.isEmpty && !tellApiBase.isEmpty
@@ -133,13 +159,19 @@ struct SetupSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 fieldRow(label: "Model") {
-                    Picker("", selection: $tellApiModel) {
-                        ForEach(modelChoices, id: \.self) { Text($0).tag($0) }
-                        Text("Other (\(tellApiModel))").tag("__custom")
+                    modelPicker
+                }
+                if isCustomModel {
+                    fieldRow(label: "Custom") {
+                        TextField("provider/model-name", text: $tellApiModel)
+                            .textFieldStyle(.plain)
+                            .font(T.mono(12))
+                            .foregroundColor(T.fgPri)
+                            .padding(.horizontal, 8).padding(.vertical, 6)
+                            .background(T.bgDeep)
+                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .tint(T.fgPri)
                 }
                 HStack(spacing: 10) {
                     Button(testing ? "Testing…" : "Test endpoint") {
