@@ -412,7 +412,10 @@ struct GbrainView: View {
         let raw: String = await Task.detached(priority: .userInitiated) {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: bin)
-            p.arguments = ["search", q]
+            // `query` is hybrid (vector + tsvector + multi-query expansion),
+            // not the pure-keyword `search` — gives diverse, semantically-
+            // ranked hits across multiple pages instead of one tsvector match.
+            p.arguments = ["query", q, "--limit", "10"]
             p.environment = env
             let outPipe = Pipe(); p.standardOutput = outPipe
             p.standardError = Pipe()

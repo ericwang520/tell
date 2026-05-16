@@ -14,10 +14,14 @@ struct PopoverView: View {
 
     @State private var range: RangeKey = .pastHour
     @State private var pulse = false
+    @State private var lastAIFetch: Date? = nil
+    /// Hard floor between two LLM hero fetches — closing and re-opening the
+    /// popover within this window will NOT trigger a new tell-rich call.
+    private let aiCacheTTL: TimeInterval = 300  // 5 minutes
     /// Fast tick (every 5s): re-parse markdown + gbrain stats — cheap, no LLM.
     private let tick = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
-    /// Slow tick (every 60s): re-fire tell-rich so the hero LLM observation stays current.
-    private let aiTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+    /// Slow tick (every 5 min): re-fire tell-rich so the hero LLM stays current.
+    private let aiTick = Timer.publish(every: 300, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -33,7 +37,6 @@ struct PopoverView: View {
                 }
             }
             .scrollIndicators(.hidden)
-            footer  // pinned bottom
         }
         .frame(width: 380, height: 540)
         .background(T.bg)
@@ -41,15 +44,20 @@ struct PopoverView: View {
         .onAppear {
             store.reload(range: range)
             store.refreshGbrainStats()
-            // Trigger an LLM fetch so the placeholder shimmer is visible
-            // (and the user sees a fresh observation on first open).
-            store.refreshFromCLI(range: range)
+            // Only fetch a new LLM observation if the cached one is older than
+            // aiCacheTTL — closing+reopening the popover within 5 min reuses
+            // the existing hero text instead of burning tokens.
+            if shouldFetchAI {
+                store.refreshFromCLI(range: range)
+                lastAIFetch = Date()
+            }
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
         }
         .onChange(of: range) {
-            // Re-fetch the LLM narrative for the new window (tell-rich call).
+            // Range switch is an explicit user signal — always re-fetch.
             store.reload(range: range)
             store.refreshFromCLI(range: range)
+            lastAIFetch = Date()
         }
         .onReceive(tick) { _ in
             store.reload(range: range)
@@ -57,6 +65,7 @@ struct PopoverView: View {
         }
         .onReceive(aiTick) { _ in
             store.refreshFromCLI(range: range)
+            lastAIFetch = Date()
         }
     }
 
@@ -350,6 +359,13 @@ struct PopoverView: View {
 
     // MARK: - footer
 
+    private var shouldFetchAI: Bool {
+        guard let last = lastAIFetch else { return true }
+        return Date().timeIntervalSince(last) >= aiCacheTTL
+    }
+
+    // (footer removed — Open Tell / settings / pause / Speak it live elsewhere)
+    @available(*, unavailable)
     private var footer: some View {
         HStack(spacing: 8) {
             Button {

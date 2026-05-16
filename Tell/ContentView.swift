@@ -843,10 +843,17 @@ struct DashboardView: View {
     @State private var pulse = false
     @State private var showAllInstalled = false
     @Namespace private var rangeNs
+    @State private var lastAIFetch: Date? = nil
+    private let aiCacheTTL: TimeInterval = 300  // 5 min cache
     /// Fast tick (every 5s): re-parse markdown + gbrain stats — cheap, no LLM.
     private let tick = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
-    /// Slow tick (every 60s): re-fire tell-rich so the hero LLM observation stays current.
-    private let aiTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+    /// Slow tick (every 5 min): re-fire tell-rich so the hero LLM stays current.
+    private let aiTick = Timer.publish(every: 300, on: .main, in: .common).autoconnect()
+
+    private var shouldFetchAI: Bool {
+        guard let last = lastAIFetch else { return true }
+        return Date().timeIntervalSince(last) >= aiCacheTTL
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -864,7 +871,10 @@ struct DashboardView: View {
         .onAppear {
             store.reload(range: range)
             store.refreshGbrainStats()
-            store.refreshFromCLI(range: range)
+            if shouldFetchAI {
+                store.refreshFromCLI(range: range)
+                lastAIFetch = Date()
+            }
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
         }
         .onReceive(tick) { _ in
@@ -873,12 +883,13 @@ struct DashboardView: View {
         }
         .onReceive(aiTick) { _ in
             store.refreshFromCLI(range: range)
+            lastAIFetch = Date()
         }
         .onChange(of: range) {
-            // Re-run tell-rich for the new window so hero + per-app summaries
-            // reflect the selected range (not the previous one).
+            // Range switch is an explicit user signal — always re-fetch.
             store.reload(range: range)
             store.refreshFromCLI(range: range)
+            lastAIFetch = Date()
             openApp = nil
         }
     }
