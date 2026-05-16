@@ -1,0 +1,38 @@
+# ── secrets ──────────────────────────────────────────────────
+.env
+.env.*
+!.env*.example
+*.pem
+*.key
+
+# ── macOS / Xcode ────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode user-specific
+**/xcuserdata/
+**/*.xcuserdatad/
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.hmap
+*.ipa
+
+# Xcode build output
+build/
+DerivedData/
+*.xcarchive
+
+# Swift package manager
+.swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
+.swiftpm/configuration/
+
+# ── editor cruft ─────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── logs ─────────────────────────────────────────────────────
+*.log
