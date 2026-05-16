@@ -41,15 +41,17 @@ struct MainWindow: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        // Custom HStack sidebar + detail — NavigationSplitView on macOS 26
+        // collapsed the sidebar and didn't pass content to detail.
+        HStack(spacing: 0) {
             sidebar
-                .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
-        } detail: {
+                .frame(width: 200)
+            Rectangle().fill(T.borderSoft).frame(width: 0.5)
             detail
-                .background(T.bg)
         }
-        .preferredColorScheme(.dark)
         .frame(minWidth: 920, minHeight: 640)
+        .background(T.bg)
+        .preferredColorScheme(.dark)
         .onAppear {
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
             if needsSetup && !alreadyDismissedSetup {
