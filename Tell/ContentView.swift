@@ -813,6 +813,10 @@ struct DashboardView: View {
     @State private var pulse = false
     @State private var showAllInstalled = false
     @Namespace private var rangeNs
+    /// Fast tick (every 5s): re-parse markdown + gbrain stats — cheap, no LLM.
+    private let tick = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    /// Slow tick (every 60s): re-fire tell-rich so the hero LLM observation stays current.
+    private let aiTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -830,7 +834,15 @@ struct DashboardView: View {
         .onAppear {
             store.reload(range: range)
             store.refreshGbrainStats()
+            store.refreshFromCLI(range: range)
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
+        }
+        .onReceive(tick) { _ in
+            store.reload(range: range)
+            store.refreshGbrainStats()
+        }
+        .onReceive(aiTick) { _ in
+            store.refreshFromCLI(range: range)
         }
         .onChange(of: range) {
             // Re-run tell-rich for the new window so hero + per-app summaries
@@ -1374,13 +1386,17 @@ struct ExpandedCard: View {
 
             // Session timeline — each row shows the AI's read of what the user
             // was doing in that session (falls back to window title before the
-            // batched LLM call comes back).
-            VStack(spacing: 0) {
-                ForEach(Array(activity.sessions.enumerated()), id: \.offset) { idx, s in
-                    if idx > 0 { Rectangle().fill(T.borderSoft).frame(height: 0.5) }
-                    sessionRow(idx: idx, session: s)
+            // batched LLM call comes back). Capped + scrollable so apps with
+            // dozens of sessions don't push the rest of the dashboard offscreen.
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(Array(activity.sessions.enumerated()), id: \.offset) { idx, s in
+                        if idx > 0 { Rectangle().fill(T.borderSoft).frame(height: 0.5) }
+                        sessionRow(idx: idx, session: s)
+                    }
                 }
             }
+            .frame(maxHeight: 280)
             .background(T.bgDeep)
             .overlay(RoundedRectangle(cornerRadius: 8).stroke(T.borderSoft, lineWidth: 0.5))
             .clipShape(RoundedRectangle(cornerRadius: 8))

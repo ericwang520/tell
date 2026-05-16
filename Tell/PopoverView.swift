@@ -14,7 +14,10 @@ struct PopoverView: View {
 
     @State private var range: RangeKey = .pastHour
     @State private var pulse = false
+    /// Fast tick (every 5s): re-parse markdown + gbrain stats — cheap, no LLM.
     private let tick = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
+    /// Slow tick (every 60s): re-fire tell-rich so the hero LLM observation stays current.
+    private let aiTick = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -43,6 +46,9 @@ struct PopoverView: View {
         .onReceive(tick) { _ in
             store.reload(range: range)
             store.refreshGbrainStats()
+        }
+        .onReceive(aiTick) { _ in
+            store.refreshFromCLI(range: range)
         }
     }
 
