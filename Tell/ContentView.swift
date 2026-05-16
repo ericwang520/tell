@@ -679,18 +679,38 @@ struct DashboardView: View {
     @Namespace private var rangeNs
 
     var body: some View {
-        VStack(spacing: 0) {
-            topbar
-            Rectangle().fill(T.borderSoft).frame(height: 0.5)
-            rangeRow
-            heroCard
-            gbrainRow
-            sectionHead
-            ScrollView { content.padding(.bottom, 20) }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Stage background (warm dark gradient) — design's .td-stage
+        ZStack(alignment: .top) {
+            LinearGradient(
+                stops: [
+                    .init(color: Color(hex: 0x3a3128), location: 0),
+                    .init(color: Color(hex: 0x1d1a16), location: 0.55),
+                    .init(color: Color(hex: 0x0e0c0a), location: 1)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .ignoresSafeArea()
+
+            // The 720pt panel (design's .td-panel)
+            VStack(spacing: 0) {
+                topbar
+                Rectangle().fill(T.borderSoft).frame(height: 0.5)
+                rangeRow
+                heroCard
+                gbrainRow
+                sectionHead
+                ScrollView { content.padding(.bottom, 20) }
+                    .frame(maxHeight: 360)
+            }
+            .frame(width: 720)
+            .background(T.bg)
+            .overlay(RoundedRectangle(cornerRadius: T.rPanel).stroke(T.borderStrong, lineWidth: 0.5))
+            .clipShape(RoundedRectangle(cornerRadius: T.rPanel))
+            .shadow(color: .black.opacity(0.55), radius: 30, y: 12)
+            .shadow(color: .black.opacity(0.4), radius: 8, y: 4)
+            .padding(.top, 36)
+            .padding(.bottom, 36)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(T.bg)
         .preferredColorScheme(.dark)
         .onAppear {
             store.reload(range: range)
@@ -759,15 +779,15 @@ struct DashboardView: View {
 
     private var topbar: some View {
         HStack(alignment: .center) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .center, spacing: 10) {
                 Circle()
                     .fill(daemon.running ? T.accent : T.fgQuat)
                     .frame(width: 7, height: 7)
                     .shadow(color: T.accent.opacity(0.55), radius: 4)
                     .opacity(pulse ? 0.55 : 1)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                ( Text("tell").font(T.serif(17)).foregroundColor(T.fgPri)
-                + Text(".").font(T.serif(19)).foregroundColor(T.period) )
+                Text("tell.")
+                    .font(T.serif(17))
+                    .foregroundColor(T.fgPri)
                 Text("watching · \(store.rangeText)")
                     .font(T.mono(10.5))
                     .foregroundColor(T.fgTer)
