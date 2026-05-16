@@ -66,15 +66,15 @@ struct MainWindow: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             // Brand: pulsing dot + serif italic 'tell' + orange period
-            HStack(alignment: .firstTextBaseline, spacing: 9) {
+            HStack(alignment: .center, spacing: 9) {
                 Circle()
                     .fill(daemon.running ? T.accent : T.fgQuat)
                     .frame(width: 7, height: 7)
                     .shadow(color: T.accent.opacity(0.55), radius: 5)
                     .opacity(pulse ? 0.6 : 1)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
-                ( Text("tell").font(T.serif(18)).foregroundColor(T.fgPri)
-                + Text(".").font(T.serif(19)).foregroundColor(T.period) )
+                Text("tell.")
+                    .font(T.serif(18))
+                    .foregroundColor(T.fgPri)
                 Spacer()
             }
             .padding(.horizontal, 18).padding(.top, 36).padding(.bottom, 18)  // clear traffic lights
