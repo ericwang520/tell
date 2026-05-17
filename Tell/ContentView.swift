@@ -337,6 +337,11 @@ struct RichPayload: Decodable {
 
 @MainActor
 final class ActivityStore: ObservableObject {
+    /// The currently rendered range. Shared across popover + dashboard so
+    /// switching range in one surface updates the other AND so reload(.x)
+    /// from one view doesn't silently clobber the other's data with the
+    /// wrong range's results.
+    @Published var range: RangeKey = .pastHour
     @Published var apps: [AppActivity] = []
     @Published var rangeText: String = ""
     @Published var totalActive: String = ""
@@ -353,6 +358,21 @@ final class ActivityStore: ObservableObject {
     /// Record a successful refresh for the range (called after refreshFromCLI).
     func markAIFetched(for range: RangeKey) {
         lastAIFetchByRange[range] = Date()
+    }
+
+    /// Single entry point for changing the rendered range. Both popover and
+    /// dashboard call this so the shared store stays consistent — no more
+    /// "popover loads past_hour, dashboard loads today, last writer wins"
+    /// flicker. Reloads markdown immediately + fires tell-rich only if the
+    /// shared cache for this range is stale.
+    func setRange(_ r: RangeKey, aiCacheTTL: TimeInterval = 300) {
+        if range == r { return }
+        range = r
+        reload(range: r)
+        if !aiCacheFresh(for: r, ttl: aiCacheTTL) {
+            refreshFromCLI(range: r)
+            markAIFetched(for: r)
+        }
     }
     /// LLM-generated overall narrative from tell-rich. Empty until refresh runs.
     @Published var overall: String = ""
@@ -454,7 +474,10 @@ final class ActivityStore: ObservableObject {
 
     private func parseSessions(_ raw: String, day: Date) -> [Session] {
         let lines = raw.components(separatedBy: "\n")
-        let pattern = #"^## (\d{2}):(\d{2}):(\d{2})[–-](\d{2}):(\d{2}):(\d{2}) \((\d+)s\) — (.+)$"#
+        // Accept both legacy `## HH:MM:SS–HH:MM:SS` and v2 `## YYYY-MM-DD HH:MM:SS–HH:MM:SS`.
+        // The optional date prefix is non-capturing — capture groups stay aligned
+        // so the existing 1-based indexing into start/end HH:MM:SS is unchanged.
+        let pattern = #"^## (?:\d{4}-\d{2}-\d{2} )?(\d{2}):(\d{2}):(\d{2})[–-](\d{2}):(\d{2}):(\d{2}) \((\d+)s\) — (.+)$"#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
         let cal = Calendar.current
         let dayStart = cal.startOfDay(for: day)
@@ -850,7 +873,6 @@ final class ActivityStore: ObservableObject {
 struct DashboardView: View {
     @EnvironmentObject var store: ActivityStore  // SHARED across popover + main window
     @EnvironmentObject var daemon: DaemonController
-    @State private var range: RangeKey = .pastHour
     @State private var openApp: String? = nil
     @State private var pulse = false
     @State private var showAllInstalled = false
@@ -860,6 +882,10 @@ struct DashboardView: View {
     private let tick = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     /// Slow tick (every 5 min): re-fire tell-rich so the hero LLM stays current.
     private let aiTick = Timer.publish(every: 300, on: .main, in: .common).autoconnect()
+
+    /// Convenience accessor — range lives on the shared store now so popover
+    /// + dashboard always render the same window without clobbering each other.
+    private var range: RangeKey { store.range }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -891,13 +917,7 @@ struct DashboardView: View {
             store.refreshFromCLI(range: range)
             store.markAIFetched(for: range)
         }
-        .onChange(of: range) {
-            store.reload(range: range)
-            // Same shared cache check — popover may have already fetched this range.
-            if !store.aiCacheFresh(for: range, ttl: aiCacheTTL) {
-                store.refreshFromCLI(range: range)
-                store.markAIFetched(for: range)
-            }
+        .onChange(of: store.range) {
             openApp = nil
         }
     }
@@ -1038,7 +1058,7 @@ struct DashboardView: View {
         let active = (range == k)
         return Button {
             withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
-                range = k
+                store.setRange(k, aiCacheTTL: aiCacheTTL)
             }
         } label: {
             HStack(spacing: 6) {

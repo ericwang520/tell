@@ -1,6 +1,5 @@
 //
 //  Shimmer.swift — animated loading shimmer
-//  Ported from PickTrip/View/Shimmer.swift
 //
 
 import SwiftUI

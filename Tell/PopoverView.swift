@@ -12,7 +12,6 @@ struct PopoverView: View {
     @EnvironmentObject var daemon: DaemonController
     @Environment(\.openWindow) private var openWindow
 
-    @State private var range: RangeKey = .pastHour
     @State private var pulse = false
     /// Hard floor between two LLM hero fetches — closing and re-opening the
     /// popover within this window will NOT trigger a new tell-rich call.
@@ -21,6 +20,10 @@ struct PopoverView: View {
     private let tick = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     /// Slow tick (every 5 min): re-fire tell-rich so the hero LLM stays current.
     private let aiTick = Timer.publish(every: 300, on: .main, in: .common).autoconnect()
+
+    /// Convenience accessor — range lives on the shared store, so changing
+    /// it in the dashboard also changes it here and vice versa.
+    private var range: RangeKey { store.range }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -50,15 +53,6 @@ struct PopoverView: View {
                 store.markAIFetched(for: range)
             }
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
-        }
-        .onChange(of: range) {
-            store.reload(range: range)
-            // Even for explicit range switches, check the shared cache —
-            // user might have already viewed this range in the main window.
-            if !store.aiCacheFresh(for: range, ttl: aiCacheTTL) {
-                store.refreshFromCLI(range: range)
-                store.markAIFetched(for: range)
-            }
         }
         .onReceive(tick) { _ in
             store.reload(range: range)
@@ -120,7 +114,7 @@ struct PopoverView: View {
 
     private func rangePill(_ k: RangeKey) -> some View {
         let active = (range == k)
-        return Button { range = k } label: {
+        return Button { store.setRange(k, aiCacheTTL: aiCacheTTL) } label: {
             HStack(spacing: 6) {
                 if k == .pastHour {
                     Circle()

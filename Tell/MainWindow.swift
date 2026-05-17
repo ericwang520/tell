@@ -350,7 +350,7 @@ struct GbrainView: View {
             Text("SEARCH BRAIN").font(.system(size: 10, weight: .semibold)).tracking(1.5)
                 .foregroundColor(T.fgTer)
             HStack {
-                TextField("e.g. Twitter, OCR, PickTrip…", text: $query)
+                TextField("e.g. Twitter, OCR, Tell…", text: $query)
                     .textFieldStyle(.plain)
                     .font(.system(size: 12, design: .monospaced))
                     .foregroundColor(T.fgPri)
