@@ -592,6 +592,73 @@ final class ActivityStore: ObservableObject {
         }
     }
 
+    // MARK: - reset all data (factory wipe)
+
+    /// Nuke every byte Tell has captured on disk + in memory + in UserDefaults.
+    /// Does NOT touch gbrain — that's the user's brain, not Tell's data.
+    /// Returns a summary string for the confirmation toast.
+    @discardableResult
+    func resetAllData() -> String {
+        let fm = FileManager.default
+        var deleted: [String] = []
+        var failed: [String] = []
+
+        // Disk wipe: walk subdirectories that ONLY Tell writes to. Keep the
+        // top-level data dir itself + gbrain.yml + any user-managed files.
+        let purgeDirs = ["screen", "intentions", "ocr"]
+        for name in purgeDirs {
+            let url = dataDir.appendingPathComponent(name)
+            if let entries = try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) {
+                for entry in entries {
+                    do {
+                        try fm.removeItem(at: entry)
+                        deleted.append("\(name)/\(entry.lastPathComponent)")
+                    } catch {
+                        failed.append(entry.lastPathComponent)
+                    }
+                }
+            }
+        }
+        // Singleton files at data dir root that Tell owns.
+        for name in ["latest.json", "live.json"] {
+            let url = dataDir.appendingPathComponent(name)
+            if fm.fileExists(atPath: url.path) {
+                try? fm.removeItem(at: url)
+                deleted.append(name)
+            }
+        }
+
+        // UserDefaults that gate the daily-intent prompt + first-setup flag.
+        // Don't wipe API keys — that would force re-onboarding on every reset.
+        for key in ["intentPromptedDate"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+
+        // In-memory wipe so the UI snaps blank immediately rather than
+        // waiting for the next reload tick.
+        apps = []
+        rangeText = ""
+        totalActive = ""
+        refreshedAt = ""
+        intent = ""
+        overall = ""
+        aiSummaries = [:]
+        richModel = ""
+        richGeneratedAt = ""
+        snapshotByRange = [:]
+        lastAIFetchByRange = [:]
+        sessionLabels = [:]
+        labelingApps = []
+        streaming = false
+
+        let n = deleted.count
+        if failed.isEmpty {
+            return "Wiped \(n) file\(n == 1 ? "" : "s"). gbrain untouched."
+        } else {
+            return "Wiped \(n), failed \(failed.count). Check perms in data/."
+        }
+    }
+
     private func parseSessions(_ raw: String, day: Date) -> [Session] {
         let lines = raw.components(separatedBy: "\n")
         // Accept both legacy `## HH:MM:SS–HH:MM:SS` and v2 `## YYYY-MM-DD HH:MM:SS–HH:MM:SS`.
@@ -1118,6 +1185,8 @@ struct DashboardView: View {
     @State private var openApp: String? = nil
     @State private var pulse = false
     @State private var showAllInstalled = false
+    @State private var showResetConfirm = false
+    @State private var resetToast: String? = nil
     @Namespace private var rangeNs
     private let aiCacheTTL: TimeInterval = 300  // 5 min shared cache
     /// Fast tick (every 5s): re-parse markdown + gbrain stats — cheap, no LLM.
@@ -1162,6 +1231,38 @@ struct DashboardView: View {
         }
         .onChange(of: store.range) {
             openApp = nil
+        }
+        .alert("Wipe all captured data?", isPresented: $showResetConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Wipe everything", role: .destructive) {
+                let summary = store.resetAllData()
+                resetToast = summary
+                // Toast auto-clears after 4s so the dashboard returns to its
+                // empty default state without sticky banners.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                    if resetToast == summary { resetToast = nil }
+                }
+            }
+        } message: {
+            Text("Deletes every screen segment, intent file, OCR cache, and "
+                 + "the daily narrative cache that Tell has written. "
+                 + "API keys + settings are kept. "
+                 + "Your gbrain pages are NOT touched — Tell only wipes its own data dir.")
+        }
+        .overlay(alignment: .top) {
+            if let toast = resetToast {
+                Text(toast)
+                    .font(T.mono(11))
+                    .foregroundColor(T.fgPri)
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(T.bgElev2)
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(T.accent.opacity(0.5), lineWidth: 0.5))
+                    )
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
         }
     }
 
@@ -1297,6 +1398,10 @@ struct DashboardView: View {
                     } else {
                         NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: nil)
                     }
+                }
+                // Destructive reset — confirmation alert prevents accidental clicks.
+                iconBtn("trash") {
+                    showResetConfirm = true
                 }
                 iconBtn("xmark") {
                     NSApp.keyWindow?.close()
