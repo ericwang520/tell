@@ -367,7 +367,22 @@ final class ActivityStore: ObservableObject {
     /// shared cache for this range is stale.
     func setRange(_ r: RangeKey, aiCacheTTL: TimeInterval = 300) {
         if range == r { return }
+        // Snapshot whatever's currently displayed BEFORE we swap so the
+        // user can return to this range and see what they last saw.
+        snapshotCurrent(into: range)
         range = r
+        // Restore the LLM narrative for the new range immediately — even if
+        // we're about to re-fetch, this kills the visual flash where switching
+        // briefly shows a stale narrative from the previous range.
+        let hadCache = restoreSnapshot(for: r)
+        if !hadCache {
+            // First time visiting this range — wipe live state so nothing
+            // stale from a sibling range leaks through.
+            overall = ""
+            aiSummaries = [:]
+            richModel = ""
+            richGeneratedAt = ""
+        }
         reload(range: r)
         if !aiCacheFresh(for: r, ttl: aiCacheTTL) {
             refreshFromCLI(range: r)
@@ -383,6 +398,44 @@ final class ActivityStore: ObservableObject {
     @Published var richGeneratedAt: String = ""
     /// True while the refresh button is running tell-rich in the background.
     @Published var refreshing: Bool = false
+    /// True while characters are being streamed in. Distinct from `refreshing`
+    /// so the UI can drop the shimmer placeholder as soon as the first char
+    /// lands and switch to the live, growing text.
+    @Published var streaming: Bool = false
+
+    /// Per-range cache of the last successfully-loaded tell-rich payload.
+    /// Lets switching range A→B→A restore A's narrative instantly instead of
+    /// either re-firing the API or staring at B's "no activity" text. Each
+    /// snapshot bundles every UI-bound field we care about so a single dict
+    /// lookup brings the hero, per-app summaries, and provenance back.
+    struct RangeSnapshot {
+        var overall: String = ""
+        var aiSummaries: [String: String] = [:]
+        var richModel: String = ""
+        var richGeneratedAt: String = ""
+    }
+    @Published var snapshotByRange: [RangeKey: RangeSnapshot] = [:]
+
+    /// Push the current live state into the cache for the given range.
+    /// Called both when streaming chunks land AND when the final payload arrives.
+    private func snapshotCurrent(into r: RangeKey) {
+        snapshotByRange[r] = RangeSnapshot(
+            overall: overall, aiSummaries: aiSummaries,
+            richModel: richModel, richGeneratedAt: richGeneratedAt
+        )
+    }
+
+    /// Restore the live state from the cache for a range (used on setRange).
+    /// Returns true if a snapshot was found.
+    @discardableResult
+    private func restoreSnapshot(for r: RangeKey) -> Bool {
+        guard let snap = snapshotByRange[r] else { return false }
+        overall = snap.overall
+        aiSummaries = snap.aiSummaries
+        richModel = snap.richModel
+        richGeneratedAt = snap.richGeneratedAt
+        return true
+    }
 
     var dataDir: URL { TellSettings.shared.resolvedDataDir }
     var richPath: URL { dataDir.appendingPathComponent("latest.json") }
@@ -588,15 +641,16 @@ final class ActivityStore: ObservableObject {
     // MARK: - tell-rich JSON integration
 
     /// Parse `latest.json` produced by `tell-rich`. Idempotent.
+    /// On success, also push into snapshotByRange[range] so range-switching
+    /// can restore the narrative without re-firing tell-rich.
     private func loadRichPayload() {
         guard
             let data = try? Data(contentsOf: richPath),
             let payload = try? JSONDecoder().decode(RichPayload.self, from: data)
         else {
-            overall = ""
-            aiSummaries = [:]
-            richModel = ""
-            richGeneratedAt = ""
+            // Don't wipe live state here — caller (setRange) handles fresh-range
+            // resets. Wiping unconditionally would clobber the snapshot the
+            // user just navigated back to.
             return
         }
         overall = (payload.overall ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -608,37 +662,141 @@ final class ActivityStore: ObservableObject {
         aiSummaries = map
         richModel = payload.model ?? ""
         richGeneratedAt = payload.generated_at ?? ""
+        snapshotCurrent(into: range)
     }
 
-    /// Run `tell-rich --window <range> --save data/latest.json`, then reload.
-    /// Settings env vars are injected (no .env.tell dependency).
+    /// Run `tell-rich --window <range> --stream --save data/latest.json` and
+    /// pipe STREAM/STREAM_DONE/PAYLOAD lines back into the live store so the
+    /// hero narrative appears char-by-char. Settings env vars are injected.
     func refreshFromCLI(range: RangeKey) {
         refreshing = true
+        streaming = false
+        // Reset the live overall for THIS range so the user sees a clean
+        // slate before tokens arrive. We don't touch other ranges' snapshots.
+        overall = ""
+        // Wipe the cached snapshot for this range so a slow stream that gets
+        // interrupted doesn't leave the user staring at a stale narrative.
+        snapshotByRange[range] = RangeSnapshot()
+
         let bin = richBin
         let saveTo = richPath
         let arg = range.richArg
         let cwd = TellSettings.shared.resolvedProjectRoot
         let env = TellSettings.shared.subprocessEnv
+        let activeRange = range
+
         Task.detached { [weak self] in
             let p = Process()
             p.executableURL = URL(fileURLWithPath: bin.path)
-            p.arguments = ["--window", arg, "--save", saveTo.path]
+            p.arguments = ["--window", arg, "--stream", "--save", saveTo.path]
             p.currentDirectoryURL = cwd
             p.environment = env
-            p.standardOutput = Pipe()
-            p.standardError = Pipe()
+            let outPipe = Pipe()
+            let errPipe = Pipe()
+            p.standardOutput = outPipe
+            p.standardError = errPipe
+
+            // Non-blocking line reader: feeds STREAM/STREAM_DONE/PAYLOAD lines
+            // back to the main actor as they arrive. The single-shot waitUntilExit
+            // pattern would defer all UI updates to the END which kills streaming.
+            actor LineBuffer {
+                var data = Data()
+                func append(_ chunk: Data) -> [String] {
+                    data.append(chunk)
+                    var lines: [String] = []
+                    while let nl = data.firstIndex(of: 0x0A) {
+                        let lineData = data.subdata(in: 0..<nl)
+                        data.removeSubrange(0...nl)
+                        if let s = String(data: lineData, encoding: .utf8) {
+                            lines.append(s)
+                        }
+                    }
+                    return lines
+                }
+            }
+            let buffer = LineBuffer()
+
+            outPipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    outPipe.fileHandleForReading.readabilityHandler = nil
+                    return
+                }
+                Task { [weak self] in
+                    let lines = await buffer.append(chunk)
+                    guard !lines.isEmpty, let self else { return }
+                    for line in lines {
+                        await self.handleStreamLine(line, range: activeRange)
+                    }
+                }
+            }
+            // Drain stderr so the pipe never fills up and blocks the child.
+            errPipe.fileHandleForReading.readabilityHandler = { handle in
+                _ = handle.availableData
+            }
+
             do {
                 try p.run()
                 p.waitUntilExit()
             } catch {
                 // swallow — UI shows whatever's currently in latest.json
             }
+            outPipe.fileHandleForReading.readabilityHandler = nil
+            errPipe.fileHandleForReading.readabilityHandler = nil
+
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.refreshing = false
+                self.streaming = false
+                // Final disk reload — picks up the saved JSON in case the
+                // stream parser missed anything OR the model returned no
+                // overall stream (only valid JSON).
                 self.reload(range: range)
             }
         }
+    }
+
+    /// Process one line of tell-rich's --stream output on the main actor.
+    /// Public so the test seam can drive it, internal use only otherwise.
+    fileprivate func handleStreamLine(_ line: String, range: RangeKey) {
+        // tell-rich emits three line shapes:
+        //   STREAM <json-string>      — chunk of `overall` to append
+        //   STREAM_DONE               — overall narrative complete
+        //   PAYLOAD <json-object>     — full payload (incl. per-app summaries)
+        if line.hasPrefix("STREAM ") {
+            let raw = String(line.dropFirst("STREAM ".count))
+            // JSON-decoded string fragment (handles \n, quotes, unicode).
+            if let data = raw.data(using: .utf8),
+               let chunk = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String {
+                streaming = true
+                overall += chunk
+                // Update the snapshot in-place so a fast range-switch back
+                // to this range while still streaming preserves what landed.
+                snapshotCurrent(into: range)
+            }
+        } else if line == "STREAM_DONE" {
+            streaming = false
+        } else if line.hasPrefix("PAYLOAD ") {
+            let raw = String(line.dropFirst("PAYLOAD ".count))
+            guard let data = raw.data(using: .utf8),
+                  let payload = try? JSONDecoder().decode(RichPayload.self, from: data)
+            else { return }
+            // The streamed overall and the PAYLOAD overall should agree; if
+            // they don't (e.g. model produced no overall stream — unusual but
+            // possible), PAYLOAD wins because it came from the parsed JSON.
+            let final = (payload.overall ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            if !final.isEmpty { overall = final }
+            var map: [String: String] = [:]
+            for a in (payload.apps ?? []) {
+                let s = (a.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                if !s.isEmpty { map[a.name.lowercased()] = s }
+            }
+            aiSummaries = map
+            richModel = payload.model ?? ""
+            richGeneratedAt = payload.generated_at ?? ""
+            snapshotCurrent(into: range)
+        }
+        // Unknown lines (stderr leakage, etc.) are silently dropped.
     }
 
     // MARK: - gbrain stats
@@ -1135,11 +1293,12 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var heroBody: some View {
-        // Three rendering modes, in priority:
-        //   1. refreshing → shimmering mock text ("AI is thinking")
-        //   2. have a real observation → render with mono ⟨...⟩ chips
+        // Four rendering modes, in priority:
+        //   1. refreshing AND no chars yet → shimmering mock ("AI is thinking")
+        //   2. streaming OR have text → render live with a trailing caret
+        //      while streaming so the user sees forward motion
         //   3. nothing → fallback message
-        if store.refreshing {
+        if store.refreshing && store.overall.isEmpty {
             TellHeroPlaceholder([
                 "You spent the last stretch jumping between three projects",
                 "without finishing any of them. The OAuth callback fix is still",
@@ -1147,7 +1306,7 @@ struct DashboardView: View {
             ])
             .shimmering(bandSize: 0.4)
         } else if !store.overall.isEmpty {
-            heroChips(store.overall)
+            heroChips(store.overall + (store.streaming ? "▍" : ""))
                 .font(T.serif(19))
                 .foregroundColor(T.fgPri)
                 .lineSpacing(4)

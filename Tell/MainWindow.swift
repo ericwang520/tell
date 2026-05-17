@@ -284,6 +284,10 @@ struct GbrainView: View {
     @State private var query: String = ""
     @State private var results: [(score: String, slug: String, snippet: String)] = []
     @State private var searching: Bool = false
+    /// Debounced live-search task. Cancelled on every keystroke so only the
+    /// last typed query actually fires `gbrain query`. gbrain is local + free
+    /// so this is fine; we still debounce ~180ms to coalesce bursts of typing.
+    @State private var liveSearchTask: Task<Void, Never>?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -359,6 +363,19 @@ struct GbrainView: View {
                     .overlay(RoundedRectangle(cornerRadius: 6).stroke(T.borderSoft, lineWidth: 0.5))
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .onSubmit { Task { await runSearch() } }
+                    .onChange(of: query) { _, newValue in
+                        liveSearchTask?.cancel()
+                        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed.isEmpty {
+                            results = []
+                            return
+                        }
+                        liveSearchTask = Task {
+                            try? await Task.sleep(nanoseconds: 180_000_000)  // 180ms debounce
+                            if Task.isCancelled { return }
+                            await runSearch()
+                        }
+                    }
                 Button(searching ? "…" : "Search") {
                     Task { await runSearch() }
                 }

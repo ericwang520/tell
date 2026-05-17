@@ -13,6 +13,9 @@ struct PopoverView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var pulse = false
+    /// Timestamp of the last tell-rich LLM call. Gates the 5-min cache below
+    /// so reopening the popover within the window reuses the cached hero.
+    @State private var lastAIFetch: Date? = nil
     /// Hard floor between two LLM hero fetches — closing and re-opening the
     /// popover within this window will NOT trigger a new tell-rich call.
     private let aiCacheTTL: TimeInterval = 300  // 5 minutes
@@ -187,13 +190,13 @@ struct PopoverView: View {
             Text("TELL · \(range.label.uppercased())")
                 .font(.system(size: 10, weight: .semibold)).tracking(1.6)
                 .foregroundColor(T.warn)
-            if store.refreshing {
-                // Shimmering placeholder text — reads as "AI is thinking"
-                // (mock content shaped like a real Tell observation).
+            if store.refreshing && store.overall.isEmpty {
+                // Shimmer ONLY while we have nothing to show. As soon as the
+                // first streamed character lands, switch to live text + caret.
                 TellHeroPlaceholder()
                     .shimmering(bandSize: 0.4)
             } else if !store.overall.isEmpty {
-                heroChips(store.overall)
+                heroChips(store.overall + (store.streaming ? "▍" : ""))
                     .font(T.serif(14.5))
                     .foregroundColor(T.fgPri)
                     .lineSpacing(3)
