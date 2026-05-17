@@ -666,17 +666,21 @@ final class ActivityStore: ObservableObject {
     }
 
     /// Run `tell-rich --window <range> --stream --save data/latest.json` and
-    /// pipe STREAM/STREAM_DONE/PAYLOAD lines back into the live store so the
-    /// hero narrative appears char-by-char. Settings env vars are injected.
+    /// pipe STREAM/STREAM_DONE/PAYLOAD lines into the per-range snapshot AND
+    /// (only when this range is the actively-viewed one) the live @Published
+    /// vars. Settings env vars are injected.
     func refreshFromCLI(range: RangeKey) {
         refreshing = true
-        streaming = false
-        // Reset the live overall for THIS range so the user sees a clean
-        // slate before tokens arrive. We don't touch other ranges' snapshots.
-        overall = ""
-        // Wipe the cached snapshot for this range so a slow stream that gets
-        // interrupted doesn't leave the user staring at a stale narrative.
+        // Wipe the snapshot we're about to rebuild — streamed chunks will
+        // fill it fresh. Sibling ranges' snapshots are untouched, so
+        // past_hour / today / yesterday remain three independent strings.
         snapshotByRange[range] = RangeSnapshot()
+        // Only reset the LIVE overall when the user is currently looking at
+        // this range. Otherwise we'd clobber whatever they're actually viewing.
+        if self.range == range {
+            streaming = false
+            overall = ""
+        }
 
         let bin = richBin
         let saveTo = richPath
@@ -757,46 +761,59 @@ final class ActivityStore: ObservableObject {
     }
 
     /// Process one line of tell-rich's --stream output on the main actor.
-    /// Public so the test seam can drive it, internal use only otherwise.
+    /// Snapshots ALWAYS land in their own range's slot regardless of what the
+    /// user is currently viewing — so past_hour/today/yesterday remain three
+    /// independent strings. The LIVE @Published vars only mutate when this
+    /// chunk's range matches the actively-displayed range, otherwise the user
+    /// would see fetches for OTHER ranges race over their current screen.
     fileprivate func handleStreamLine(_ line: String, range: RangeKey) {
-        // tell-rich emits three line shapes:
-        //   STREAM <json-string>      — chunk of `overall` to append
-        //   STREAM_DONE               — overall narrative complete
-        //   PAYLOAD <json-object>     — full payload (incl. per-app summaries)
+        let isActiveRange = (self.range == range)
+
         if line.hasPrefix("STREAM ") {
             let raw = String(line.dropFirst("STREAM ".count))
-            // JSON-decoded string fragment (handles \n, quotes, unicode).
-            if let data = raw.data(using: .utf8),
-               let chunk = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String {
+            guard let data = raw.data(using: .utf8),
+                  let chunk = try? JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? String
+            else { return }
+            // Snapshot side: append to this range's cached overall.
+            var snap = snapshotByRange[range] ?? RangeSnapshot()
+            snap.overall += chunk
+            snapshotByRange[range] = snap
+            // Live side: only if user is actually viewing this range.
+            if isActiveRange {
                 streaming = true
                 overall += chunk
-                // Update the snapshot in-place so a fast range-switch back
-                // to this range while still streaming preserves what landed.
-                snapshotCurrent(into: range)
             }
         } else if line == "STREAM_DONE" {
-            streaming = false
+            if isActiveRange { streaming = false }
         } else if line.hasPrefix("PAYLOAD ") {
             let raw = String(line.dropFirst("PAYLOAD ".count))
             guard let data = raw.data(using: .utf8),
                   let payload = try? JSONDecoder().decode(RichPayload.self, from: data)
             else { return }
-            // The streamed overall and the PAYLOAD overall should agree; if
-            // they don't (e.g. model produced no overall stream — unusual but
-            // possible), PAYLOAD wins because it came from the parsed JSON.
+            // PAYLOAD wins over the streamed overall when both exist (they
+            // should agree; if the model returned only valid JSON with no
+            // stream, this fills it in).
             let final = (payload.overall ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !final.isEmpty { overall = final }
             var map: [String: String] = [:]
             for a in (payload.apps ?? []) {
                 let s = (a.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !s.isEmpty { map[a.name.lowercased()] = s }
             }
-            aiSummaries = map
-            richModel = payload.model ?? ""
-            richGeneratedAt = payload.generated_at ?? ""
-            snapshotCurrent(into: range)
+            let prevSnap = snapshotByRange[range] ?? RangeSnapshot()
+            snapshotByRange[range] = RangeSnapshot(
+                overall: final.isEmpty ? prevSnap.overall : final,
+                aiSummaries: map,
+                richModel: payload.model ?? "",
+                richGeneratedAt: payload.generated_at ?? ""
+            )
+            if isActiveRange {
+                if !final.isEmpty { overall = final }
+                aiSummaries = map
+                richModel = payload.model ?? ""
+                richGeneratedAt = payload.generated_at ?? ""
+            }
         }
-        // Unknown lines (stderr leakage, etc.) are silently dropped.
+        // Unknown lines (stderr leakage, etc.) silently dropped.
     }
 
     // MARK: - gbrain stats
