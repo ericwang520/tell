@@ -40,6 +40,9 @@ final class TellAppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct TellApp: App {
     @StateObject private var daemon = DaemonController()
+    /// Shared activity store — popover + main window read/write the same
+    /// instance so a fetch in one surface is instantly visible to the other.
+    @StateObject private var activityStore = ActivityStore()
     @NSApplicationDelegateAdaptor(TellAppDelegate.self) private var appDelegate
 
     init() {
@@ -54,6 +57,7 @@ struct TellApp: App {
         WindowGroup("Tell", id: "main") {
             MainWindow()
                 .environmentObject(daemon)
+                .environmentObject(activityStore)
                 .onAppear {
                     appDelegate.daemon = daemon
                     if TellSettings.shared.daemonAutoStart {
@@ -71,6 +75,7 @@ struct TellApp: App {
         MenuBarExtra {
             PopoverView()
                 .environmentObject(daemon)
+                .environmentObject(activityStore)
         } label: {
             Image(systemName: daemon.running ? "eye.circle.fill" : "eye.circle")
                 .foregroundStyle(daemon.running ? .green : .secondary)

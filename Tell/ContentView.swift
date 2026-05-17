@@ -342,6 +342,18 @@ final class ActivityStore: ObservableObject {
     @Published var totalActive: String = ""
     @Published var refreshedAt: String = ""
     @Published var intent: String = ""
+    /// When tell-rich last completed for a given range. Shared across popover
+    /// + dashboard so a fetch in one surface satisfies the cache in the other.
+    @Published var lastAIFetchByRange: [RangeKey: Date] = [:]
+    /// True if a tell-rich call for `range` happened within `ttl` seconds.
+    func aiCacheFresh(for range: RangeKey, ttl: TimeInterval = 300) -> Bool {
+        guard let t = lastAIFetchByRange[range] else { return false }
+        return Date().timeIntervalSince(t) < ttl
+    }
+    /// Record a successful refresh for the range (called after refreshFromCLI).
+    func markAIFetched(for range: RangeKey) {
+        lastAIFetchByRange[range] = Date()
+    }
     /// LLM-generated overall narrative from tell-rich. Empty until refresh runs.
     @Published var overall: String = ""
     /// LLM-generated per-app one-liners, keyed by app name (case-insensitive lookup).
@@ -836,24 +848,18 @@ final class ActivityStore: ObservableObject {
 // MARK: - Dashboard view
 
 struct DashboardView: View {
-    @StateObject var store = ActivityStore()
+    @EnvironmentObject var store: ActivityStore  // SHARED across popover + main window
     @EnvironmentObject var daemon: DaemonController
     @State private var range: RangeKey = .pastHour
     @State private var openApp: String? = nil
     @State private var pulse = false
     @State private var showAllInstalled = false
     @Namespace private var rangeNs
-    @State private var lastAIFetch: Date? = nil
-    private let aiCacheTTL: TimeInterval = 300  // 5 min cache
+    private let aiCacheTTL: TimeInterval = 300  // 5 min shared cache
     /// Fast tick (every 5s): re-parse markdown + gbrain stats — cheap, no LLM.
     private let tick = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     /// Slow tick (every 5 min): re-fire tell-rich so the hero LLM stays current.
     private let aiTick = Timer.publish(every: 300, on: .main, in: .common).autoconnect()
-
-    private var shouldFetchAI: Bool {
-        guard let last = lastAIFetch else { return true }
-        return Date().timeIntervalSince(last) >= aiCacheTTL
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -871,9 +877,9 @@ struct DashboardView: View {
         .onAppear {
             store.reload(range: range)
             store.refreshGbrainStats()
-            if shouldFetchAI {
+            if !store.aiCacheFresh(for: range, ttl: aiCacheTTL) {
                 store.refreshFromCLI(range: range)
-                lastAIFetch = Date()
+                store.markAIFetched(for: range)
             }
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
         }
@@ -883,13 +889,15 @@ struct DashboardView: View {
         }
         .onReceive(aiTick) { _ in
             store.refreshFromCLI(range: range)
-            lastAIFetch = Date()
+            store.markAIFetched(for: range)
         }
         .onChange(of: range) {
-            // Range switch is an explicit user signal — always re-fetch.
             store.reload(range: range)
-            store.refreshFromCLI(range: range)
-            lastAIFetch = Date()
+            // Same shared cache check — popover may have already fetched this range.
+            if !store.aiCacheFresh(for: range, ttl: aiCacheTTL) {
+                store.refreshFromCLI(range: range)
+                store.markAIFetched(for: range)
+            }
             openApp = nil
         }
     }

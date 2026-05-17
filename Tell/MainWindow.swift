@@ -415,7 +415,7 @@ struct GbrainView: View {
             // `query` is hybrid (vector + tsvector + multi-query expansion),
             // not the pure-keyword `search` — gives diverse, semantically-
             // ranked hits across multiple pages instead of one tsvector match.
-            p.arguments = ["query", q, "--limit", "10"]
+            p.arguments = ["query", q, "--limit", "1000"]
             p.environment = env
             let outPipe = Pipe(); p.standardOutput = outPipe
             p.standardError = Pipe()

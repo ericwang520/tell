@@ -8,13 +8,12 @@ import AppKit
 import Combine
 
 struct PopoverView: View {
-    @StateObject var store = ActivityStore()
+    @EnvironmentObject var store: ActivityStore  // SHARED across popover + main window
     @EnvironmentObject var daemon: DaemonController
     @Environment(\.openWindow) private var openWindow
 
     @State private var range: RangeKey = .pastHour
     @State private var pulse = false
-    @State private var lastAIFetch: Date? = nil
     /// Hard floor between two LLM hero fetches — closing and re-opening the
     /// popover within this window will NOT trigger a new tell-rich call.
     private let aiCacheTTL: TimeInterval = 300  // 5 minutes
@@ -44,20 +43,22 @@ struct PopoverView: View {
         .onAppear {
             store.reload(range: range)
             store.refreshGbrainStats()
-            // Only fetch a new LLM observation if the cached one is older than
-            // aiCacheTTL — closing+reopening the popover within 5 min reuses
-            // the existing hero text instead of burning tokens.
-            if shouldFetchAI {
+            // Shared cache — if the main window already fetched this range
+            // within 5 min, the popover reuses store.overall directly.
+            if !store.aiCacheFresh(for: range, ttl: aiCacheTTL) {
                 store.refreshFromCLI(range: range)
-                lastAIFetch = Date()
+                store.markAIFetched(for: range)
             }
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
         }
         .onChange(of: range) {
-            // Range switch is an explicit user signal — always re-fetch.
             store.reload(range: range)
-            store.refreshFromCLI(range: range)
-            lastAIFetch = Date()
+            // Even for explicit range switches, check the shared cache —
+            // user might have already viewed this range in the main window.
+            if !store.aiCacheFresh(for: range, ttl: aiCacheTTL) {
+                store.refreshFromCLI(range: range)
+                store.markAIFetched(for: range)
+            }
         }
         .onReceive(tick) { _ in
             store.reload(range: range)
@@ -65,7 +66,7 @@ struct PopoverView: View {
         }
         .onReceive(aiTick) { _ in
             store.refreshFromCLI(range: range)
-            lastAIFetch = Date()
+            store.markAIFetched(for: range)
         }
     }
 
@@ -358,11 +359,6 @@ struct PopoverView: View {
     }
 
     // MARK: - footer
-
-    private var shouldFetchAI: Bool {
-        guard let last = lastAIFetch else { return true }
-        return Date().timeIntervalSince(last) >= aiCacheTTL
-    }
 
     // (footer removed — Open Tell / settings / pause / Speak it live elsewhere)
     @available(*, unavailable)
