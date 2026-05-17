@@ -1465,13 +1465,15 @@ struct ExpandedCard: View {
 
             // Session timeline — each row shows the AI's read of what the user
             // was doing in that session (falls back to window title before the
-            // batched LLM call comes back). Capped + scrollable so apps with
-            // dozens of sessions don't push the rest of the dashboard offscreen.
+            // batched LLM call comes back). Adjacent sessions with the SAME AI
+            // label collapse into one row so you don't get six identical
+            // "Checking daily activity with gbrain" rows that span 17:18–17:21.
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(activity.sessions.enumerated()), id: \.offset) { idx, s in
+                    let rows = mergedRows()
+                    ForEach(Array(rows.enumerated()), id: \.offset) { idx, row in
                         if idx > 0 { Rectangle().fill(T.borderSoft).frame(height: 0.5) }
-                        sessionRow(idx: idx, session: s)
+                        mergedRow(row)
                     }
                 }
             }
@@ -1489,42 +1491,101 @@ struct ExpandedCard: View {
         }
     }
 
-    @ViewBuilder
-    private func sessionRow(idx: Int, session s: Session) -> some View {
+    /// One row in the expanded timeline — may represent N adjacent sessions
+    /// the AI labeled identically. `start`/`end` span the merged window,
+    /// `seconds` is the sum.
+    private struct MergedRow {
+        let label: String
+        let title: String
+        let start: Date
+        let end: Date
+        let seconds: Int
+        let sessionCount: Int
+    }
+
+    /// Merge adjacent sessions whose AI labels are identical (case + whitespace
+    /// normalized). Sessions are already sorted newest-first in AppActivity.
+    /// If labels haven't arrived yet we still merge by title so the loading
+    /// state doesn't look spammy either.
+    private func mergedRows() -> [MergedRow] {
         let labels = store.sessionLabels[activity.name] ?? []
-        let aiLabel = idx < labels.count ? labels[idx] : ""
+        let sessions = activity.sessions
+        func key(_ idx: Int, _ s: Session) -> String {
+            let raw = idx < labels.count ? labels[idx] : ""
+            let l = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if !l.isEmpty && l != "(no detail)" { return "ai:\(l)" }
+            // Fall back to title so a label-less period still groups quietly.
+            return "title:\(s.title.lowercased())"
+        }
+        var out: [MergedRow] = []
+        var i = 0
+        while i < sessions.count {
+            var j = i
+            let k = key(i, sessions[i])
+            while j + 1 < sessions.count && key(j + 1, sessions[j + 1]) == k {
+                j += 1
+            }
+            let group = sessions[i...j]
+            // Earliest start, latest end — sessions[i] is the NEWEST so the
+            // span runs from group.last (oldest) to group.first (newest).
+            let starts = group.map { $0.start }.min()!
+            let ends = group.map { $0.end }.max()!
+            let total = group.reduce(0) { $0 + $1.seconds }
+            let rawLabel = i < labels.count ? labels[i] : ""
+            let title = group.first?.title ?? ""
+            out.append(MergedRow(
+                label: rawLabel, title: title,
+                start: starts, end: ends, seconds: total,
+                sessionCount: group.count
+            ))
+            i = j + 1
+        }
+        return out
+    }
+
+    @ViewBuilder
+    private func mergedRow(_ row: MergedRow) -> some View {
         let loading = store.labelingApps.contains(activity.name)
+        let trimmed = row.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hasLabel = !trimmed.isEmpty && trimmed != "(no detail)"
         let primary: String = {
-            if !aiLabel.isEmpty && aiLabel != "(no detail)" { return aiLabel }
+            if hasLabel { return trimmed }
             if loading { return "AI reading…" }
-            return s.title.isEmpty ? "(no title)" : s.title
+            return row.title.isEmpty ? "(no title)" : row.title
         }()
         let primaryColor: Color = {
-            if !aiLabel.isEmpty && aiLabel != "(no detail)" { return T.fgPri }
+            if hasLabel { return T.fgPri }
             if loading { return T.fgTer }
-            return T.fgSec  // fallback to dim when only title
+            return T.fgSec
         }()
 
         HStack(spacing: 14) {
-            Text("\(time(s.start)) – \(time(s.end))")
+            Text("\(time(row.start)) – \(time(row.end))")
                 .font(T.mono(11))
                 .monospacedDigit()
                 .foregroundColor(T.fgTer)
                 .frame(width: 96, alignment: .leading)
             VStack(alignment: .leading, spacing: 1) {
-                Text(primary)
-                    .font(T.ui(12.5))
-                    .foregroundColor(primaryColor)
-                    .lineLimit(1)
-                if !aiLabel.isEmpty, !s.title.isEmpty, aiLabel != s.title {
-                    Text(s.title)
+                HStack(spacing: 6) {
+                    Text(primary)
+                        .font(T.ui(12.5))
+                        .foregroundColor(primaryColor)
+                        .lineLimit(1)
+                    if row.sessionCount > 1 {
+                        Text("×\(row.sessionCount)")
+                            .font(T.mono(9.5))
+                            .foregroundColor(T.fgQuat)
+                    }
+                }
+                if hasLabel, !row.title.isEmpty, trimmed.lowercased() != row.title.lowercased() {
+                    Text(row.title)
                         .font(T.mono(9.5))
                         .foregroundColor(T.fgQuat)
                         .lineLimit(1)
                 }
             }
             Spacer()
-            Text(durString(s.seconds))
+            Text(durString(row.seconds))
                 .font(T.mono(11))
                 .monospacedDigit()
                 .foregroundColor(T.fgTer)
