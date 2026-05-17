@@ -28,9 +28,12 @@ enum WindowSection: String, CaseIterable, Identifiable {
 
 struct MainWindow: View {
     @EnvironmentObject var daemon: DaemonController
+    @EnvironmentObject var store: ActivityStore
     @State private var section: WindowSection = .dashboard
     @State private var pulse: Bool = false
     @State private var showSetup: Bool = false
+    @State private var showIntent: Bool = false
+    @State private var intentSheetIsEdit: Bool = false
 
     private var needsSetup: Bool {
         TellSettings.shared.tellApiKey.isEmpty
@@ -56,10 +59,35 @@ struct MainWindow: View {
             withAnimation(.easeInOut(duration: 2.2).repeatForever()) { pulse.toggle() }
             if needsSetup && !alreadyDismissedSetup {
                 showSetup = true
+            } else {
+                // Only chain the intent prompt after setup is settled — first-launch
+                // ever, the setup sheet wins. Same-day re-opens skip both.
+                maybePromptForIntent()
             }
         }
-        .sheet(isPresented: $showSetup) {
+        .onReceive(NotificationCenter.default.publisher(
+            for: Notification.Name("TellOpenIntentSheet")
+        )) { _ in
+            intentSheetIsEdit = !store.intent.isEmpty
+            showIntent = true
+        }
+        .sheet(isPresented: $showSetup, onDismiss: {
+            // Setup just closed — now's the right moment to ask for today's
+            // focus if we haven't already.
+            maybePromptForIntent()
+        }) {
             SetupSheet(isPresented: $showSetup)
+        }
+        .sheet(isPresented: $showIntent) {
+            IntentSheet(isPresented: $showIntent, editing: intentSheetIsEdit)
+                .environmentObject(store)
+        }
+    }
+
+    private func maybePromptForIntent() {
+        if store.shouldPromptForIntentToday() {
+            intentSheetIsEdit = false
+            showIntent = true
         }
     }
 

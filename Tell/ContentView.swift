@@ -525,6 +525,73 @@ final class ActivityStore: ObservableObject {
             .first(where: { !$0.isEmpty && !$0.hasPrefix("_") }) ?? ""
     }
 
+    // MARK: - intent (daily focus) writing
+
+    /// True ONLY on the first launch of a calendar day when no intent file
+    /// exists AND the user hasn't already dismissed today's prompt. Anchors
+    /// off file existence + a per-day UserDefaults marker so re-opening the
+    /// app after declining doesn't re-pester.
+    func shouldPromptForIntentToday() -> Bool {
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        let today = df.string(from: Date())
+        let url = dataDir.appendingPathComponent("intentions").appendingPathComponent("\(today).md")
+        if FileManager.default.fileExists(atPath: url.path) {
+            return false  // already set today — nothing to ask
+        }
+        let lastPromptDate = UserDefaults.standard.string(forKey: "intentPromptedDate")
+        return lastPromptDate != today
+    }
+
+    /// Record that we showed today's intent prompt — keeps us from re-asking
+    /// after dismissal without save. Cleared by saveIntent so manual edits
+    /// don't trigger the marker dance.
+    func markIntentPromptShownToday() {
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        UserDefaults.standard.set(df.string(from: Date()), forKey: "intentPromptedDate")
+    }
+
+    /// Write the daily focus file in the format tell-rich's `load_intent`
+    /// already parses. Invalidates the AI cache for every range so the next
+    /// hero refresh re-reads the new intent and grounds the narrative on it.
+    /// Returns true on successful disk write.
+    @discardableResult
+    func saveIntent(_ text: String, for date: Date = Date()) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd"
+        let dateStr = df.string(from: date)
+        let tf = DateFormatter(); tf.dateFormat = "HH:mm"
+        let timeStr = tf.string(from: Date())
+        let body = """
+        ---
+        slug: intentions/\(dateStr)
+        type: intention
+        date: \(dateStr)
+        ---
+
+        ## Today's focus
+
+        \(trimmed)
+
+        _set at \(timeStr)_
+        """
+        let dir = dataDir.appendingPathComponent("intentions")
+        do {
+            try FileManager.default.createDirectory(at: dir,
+                                                    withIntermediateDirectories: true)
+            let url = dir.appendingPathComponent("\(dateStr).md")
+            try body.write(to: url, atomically: true, encoding: .utf8)
+            // Hero LLM bakes the intent INTO the prompt, so cached narratives
+            // are now stale — invalidate so the next view triggers a refresh.
+            lastAIFetchByRange.removeAll()
+            // Surface the new intent in the live var for any view bound to it.
+            intent = trimmed
+            return true
+        } catch {
+            return false
+        }
+    }
+
     private func parseSessions(_ raw: String, day: Date) -> [Session] {
         let lines = raw.components(separatedBy: "\n")
         // Accept both legacy `## HH:MM:SS–HH:MM:SS` and v2 `## YYYY-MM-DD HH:MM:SS–HH:MM:SS`.
@@ -1066,6 +1133,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 0) {
             topbar
             Rectangle().fill(T.borderSoft).frame(height: 0.5)
+            intentBar
             rangeRow
             heroCard
             gbrainRow
@@ -1151,6 +1219,50 @@ struct DashboardView: View {
 
     // MARK: top bar
 
+    /// Slim banner under the topbar showing today's focus (when set) or a
+    /// gentle prompt to set one (when not). Click anywhere on the row to
+    /// open the IntentSheet via NotificationCenter (MainWindow owns the
+    /// sheet binding so we can't push it from a child view directly).
+    private var intentBar: some View {
+        let hasFocus = !store.intent.isEmpty
+        return Button(action: {
+            NotificationCenter.default.post(name: Notification.Name("TellOpenIntentSheet"), object: nil)
+        }) {
+            HStack(spacing: 10) {
+                Image(systemName: hasFocus ? "target" : "questionmark.circle")
+                    .font(.system(size: 11))
+                    .foregroundColor(hasFocus ? T.accent : T.fgTer)
+                Text(hasFocus ? "TODAY'S FOCUS" : "NO FOCUS SET")
+                    .font(.system(size: 9.5, weight: .semibold))
+                    .tracking(1.4)
+                    .foregroundColor(T.fgTer)
+                Text(hasFocus ? store.intent
+                              : "What are you trying to land today?")
+                    .font(T.serif(13))
+                    .italic(hasFocus)
+                    .foregroundColor(hasFocus ? T.fgSec : T.fgTer)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Spacer()
+                Text(hasFocus ? "edit" : "set →")
+                    .font(T.mono(9.5))
+                    .foregroundColor(T.fgQuat)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .background(
+                Rectangle()
+                    .fill(hasFocus
+                          ? T.accent.opacity(0.04)
+                          : T.warn.opacity(0.04))
+            )
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(T.borderSoft).frame(height: 0.5)
+        }
+    }
+
     private var topbar: some View {
         HStack(alignment: .center) {
             HStack(alignment: .center, spacing: 10) {
@@ -1232,9 +1344,10 @@ struct DashboardView: View {
     private func rangePill(_ k: RangeKey) -> some View {
         let active = (range == k)
         return Button {
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
-                store.setRange(k, aiCacheTTL: aiCacheTTL)
-            }
+            // No withAnimation here: the data swap (overall + apps + intent)
+            // must commit instantly. The pill HIGHLIGHT animates on its own
+            // via .animation(_:value: active) below.
+            store.setRange(k, aiCacheTTL: aiCacheTTL)
         } label: {
             HStack(spacing: 6) {
                 if k == .pastHour {
